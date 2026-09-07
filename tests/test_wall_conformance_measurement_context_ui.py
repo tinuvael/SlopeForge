@@ -219,6 +219,36 @@ def test_incompatible_actual_legend_does_not_claim_an_evaluated_section() -> Non
     label.deleteLater()
 
 
+def test_overview_excludes_raw_context_without_compatible_actual_wall_section() -> None:
+    _app()
+    raw_context = (_segment(-2.0, 12.0),)
+    compatible = _profile(
+        actual=(_segment(0.0, 10.0),), context_actual=raw_context,
+    )
+    incompatible = _profile(actual=(), context_actual=raw_context)
+    measurement = _measurement(0.0, 10.0)
+    variant = SimpleNamespace(
+        profile_indices=(0, 1), upstream_context=None, elements=(),
+    )
+    plot = WallProfilePlot()
+    plot.set_overview(
+        SimpleNamespace(profiles=(compatible, incompatible), design_variants=(variant,)),
+        measurements=(measurement, measurement),
+    )
+
+    assert plot._profile_has_overview_actual_display(compatible, measurement)
+    assert not plot._profile_has_overview_actual_display(incompatible, measurement)
+    assert [(segment.start.u, segment.end.u) for segment in plot._geometry()[1]] == [
+        (0.0, 10.0),
+    ]
+
+    plot.set_profile(incompatible, measurement)
+    solid, context = plot._actual_render_layers()
+    assert solid == ()
+    assert context
+    plot.deleteLater()
+
+
 def test_compatible_actual_and_high_current_toe_still_render_normally() -> None:
     _app()
     actual = (_segment(0.0, 10.0, z=100.0),)

@@ -244,6 +244,9 @@ def test_overview_actual_is_precisely_clipped_to_each_physical_measurement() -> 
             point=SectionPoint(2.0, 20.25, 2.0, 0.0),
             detection=SimpleNamespace(reliable=True),
         ),
+        upper_crest=SimpleNamespace(
+            point=None, detection=SimpleNamespace(reliable=False),
+        ),
         lower_toe=SimpleNamespace(
             point=SectionPoint(10.0, 13.3333333333, 10.0, 0.0),
             detection=SimpleNamespace(reliable=True),
@@ -276,7 +279,7 @@ def test_overview_uses_all_evaluated_measurement_sections_not_raw_profile_geomet
     profiles = tuple(
         TransverseProfile(
             WallAlignmentSample(float(index), origin, (1.0, 0.0), (0.0, 1.0)),
-            (), (), DesignSection(()),
+            (), measured_segments, DesignSection(()),
             measurement_context=SimpleNamespace(actual_segments=measured_segments),
         )
         for index in range(2)
@@ -702,17 +705,9 @@ def test_overview_renders_every_evaluated_actual_section_counted_as_coverage(mon
     tab.calculate()
 
     variant = tab.result.profile_sections.design_variants[0]
-    physical_profiles = tuple(
-        index for index in variant.profile_indices
-        if (
-            tab.result.measurements[index].actual_landmarks.upper_berm_start.detection.reliable
-            or tab.result.measurements[index].actual_landmarks.upper_crest.detection.reliable
-        )
-        and tab.result.measurements[index].actual_landmarks.lower_toe.detection.reliable
-    )
     covered = tuple(
         index for index in variant.profile_indices
-        if tab.profile_plot._profile_has_compatible_actual_display(
+        if module.has_compatible_actual_wall_section(
             tab.result.profile_sections.profiles[index], tab.result.measurements[index]
         )
     )
@@ -733,13 +728,30 @@ def test_overview_renders_every_evaluated_actual_section_counted_as_coverage(mon
                 tab.result.measurements[index].actual_landmarks.lower_toe.point.u,
             ),
         ))
-        for index in physical_profiles
+        for index in covered
     )
     assert rendered == actual
     assert context == ()
     assert "Actual coverage: %s / %s" % (len(covered), len(variant.profile_indices)) in (
         tab.profile_summary.text()
     )
+    tab.deleteLater()
+    _app().sendPostedEvents()
+
+
+def test_overview_coverage_and_actual_traces_share_the_compatibility_gate(monkeypatch):
+    tab = _tab(monkeypatch)
+    _complete_alignment(tab)
+    tab.calculate()
+    variant = tab.result.profile_sections.design_variants[0]
+
+    monkeypatch.setattr(module, "has_compatible_actual_wall_section", lambda *_args: False)
+    tab._select_profile(0)
+
+    assert "Actual coverage: 0 / %s profiles" % len(variant.profile_indices) in (
+        tab.profile_summary.text()
+    )
+    assert tab.profile_plot._geometry()[1] == ()
     tab.deleteLater()
     _app().sendPostedEvents()
 

@@ -805,6 +805,8 @@ class WallProfilePlot(QWidget):
                 continue
             profile = self.profile_set.profiles[index]
             measurement = self.measurements[index]
+            if not self._profile_has_compatible_actual_display(profile, measurement):
+                continue
             upper_start = self._reliable_actual_landmark_from(
                 measurement, "upper_berm_start"
             )
@@ -872,6 +874,8 @@ class WallProfilePlot(QWidget):
     @classmethod
     def _profile_has_overview_actual_display(cls, profile, measurement):
         """Whether the evaluated measurement span can contribute to Overview."""
+        if not cls._profile_has_compatible_actual_display(profile, measurement):
+            return False
         upper_start = cls._reliable_actual_landmark_from(
             measurement, "upper_berm_start"
         )

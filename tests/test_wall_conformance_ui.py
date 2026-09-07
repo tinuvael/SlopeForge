@@ -9,8 +9,10 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QTableWidget
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QEvent, QPoint, QRectF, Qt
+from PySide6.QtTest import QTest
 
 from domain.geometry.surfaces import SurfaceTriangle, SurfaceVertex, TriangleSurface
 from domain.geometry.types import PlanPoint, PlanPolygon
@@ -84,6 +86,89 @@ def test_selected_profile_plot_prepends_display_only_upstream_context() -> None:
         (0.0, 4.0),
     ]
     assert actual == ()
+    plot.deleteLater()
+
+
+def _ruler_plot():
+    _app()
+    crest = SectionPoint(0.0, 20.0, 0.0, 0.0)
+    toe = SectionPoint(10.0, 10.0, 10.0, 0.0)
+    profile = TransverseProfile(
+        WallAlignmentSample(
+            0.0, SurfaceVertex(0.0, 0.0, 20.0), (1.0, 0.0), (0.0, 1.0)
+        ),
+        (SectionSegment(crest, toe, 1, "face"),),
+        (),
+        DesignSection((DesignSectionElement("face", crest, toe, (1,)),)),
+    )
+    plot = module.WallProfilePlot()
+    plot.resize(640, 420)
+    plot.set_profile(profile)
+    return plot
+
+
+def test_manual_ruler_transform_round_trip_and_equal_metric_scale() -> None:
+    plot = _ruler_plot()
+    bounds = plot._plot_data_bounds()
+    assert bounds is not None
+    point = plot._map_data_to_widget(3.25, 16.75, bounds)
+    assert plot._map_widget_to_data(point, bounds) == pytest.approx((3.25, 16.75))
+    plot_rect = plot.plot_rect()
+    assert plot_rect.width() / (bounds[1] - bounds[0]) == pytest.approx(
+        plot_rect.height() / (bounds[3] - bounds[2])
+    )
+    plot.deleteLater()
+
+
+def test_manual_ruler_click_sequence_is_overlay_only_and_resize_stable() -> None:
+    plot = _ruler_plot()
+    automatic_measurement = object()
+    plot.set_profile(plot.profile, automatic_measurement)
+    original_points = plot._points()
+    original_bounds = plot._plot_data_bounds()
+    plot.set_measure_mode(True)
+    first = plot._map_data_to_widget(2.0, 18.0)
+    second = plot._map_data_to_widget(8.0, 12.0)
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=QPoint(round(first.x()), round(first.y())))
+    assert plot.measure_point_a == pytest.approx((2.0, 18.0), abs=0.1)
+    assert plot.measure_point_b is None
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=QPoint(round(second.x()), round(second.y())))
+    assert plot.measure_point_b == pytest.approx((8.0, 12.0), abs=0.1)
+    third = plot._map_data_to_widget(4.0, 16.0)
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=QPoint(round(third.x()), round(third.y())))
+    assert plot.measure_point_a == pytest.approx((4.0, 16.0), abs=0.1)
+    assert plot.measure_point_b is None
+    assert plot._points() == original_points
+    assert plot._plot_data_bounds() == original_bounds
+    assert plot.measurement is automatic_measurement
+    stored = plot.measure_point_a
+    plot.resize(900, 520)
+    plot.repaint()
+    assert plot.measure_point_a == stored
+    plot.deleteLater()
+
+
+def test_manual_ruler_math_clear_and_non_measure_clicks() -> None:
+    plot = _ruler_plot()
+    assert plot._manual_measurement_values((3.0, 5.0), (-1.0, 8.0)) == pytest.approx(
+        (-4.0, 3.0, 5.0, 36.8698976458)
+    )
+    assert plot._manual_measurement_values((0.0, 0.0), (4.0, 0.0))[3] == pytest.approx(0.0)
+    assert plot._manual_measurement_values((0.0, 0.0), (0.0, -4.0))[3] == pytest.approx(90.0)
+    inside = plot.plot_rect().center()
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=inside.toPoint())
+    assert plot.measure_point_a is None
+    plot.set_measure_mode(True)
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=QPoint(1, 1))
+    assert plot.measure_point_a is None
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=inside.toPoint())
+    assert plot.measure_point_a is not None
+    plot.set_profile(plot.profile)
+    assert plot.measure_point_a is None and plot.measure_point_b is None
+    plot.set_measure_mode(True)
+    QTest.mouseClick(plot, Qt.MouseButton.LeftButton, pos=inside.toPoint())
+    plot.clear_measurement()
+    assert plot.measure_point_a is None and plot.measure_point_b is None
     plot.deleteLater()
 
 
@@ -388,6 +473,77 @@ def _tab(monkeypatch):
     _app()
     monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
     return module.WallConformanceTab(object(), 1, _area())
+
+
+def _ruler_overview(profile):
+    face = _representative_element("face", 0.0, 10.0, 0.0, -10.0)
+    return SimpleNamespace(
+        profiles=(profile,), design_variants=(DesignVariant("FACE", (0,), (face,)),)
+    )
+
+
+def test_manual_ruler_controls_support_overview_reset_and_escape(monkeypatch) -> None:
+    tab = _tab(monkeypatch)
+    source = _ruler_plot()
+    tab.resize(1366, 768)
+    tab.show()
+    _app().processEvents()
+    assert tab.measure_button.text() == "Measure"
+    assert tab.measure_button.width() >= tab.measure_button.minimumSizeHint().width()
+    assert tab.measure_button.geometry().right() <= tab.profile_header.contentsRect().right()
+    tab.profile_plot.set_profile(source.profile)
+    tab._sync_measure_controls()
+    assert tab.measure_button.isEnabled()
+    tab.profile_plot.set_measure_mode(True)
+    tab.profile_plot.measure_point_a = (2.0, 18.0)
+    escape = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    assert tab.eventFilter(tab.profile_plot, escape)
+    assert tab.profile_plot.measure_point_a is None
+    assert tab.profile_plot.measure_mode
+    assert tab.eventFilter(tab.profile_plot, escape)
+    assert not tab.profile_plot.measure_mode
+
+    overview = _ruler_overview(source.profile)
+    tab.profile_plot.set_overview(overview)
+    assert tab.profile_plot.measure_point_a is None
+    assert not tab.profile_plot.measure_mode
+    assert tab.measure_button.isEnabled()
+    tab.profile_plot.set_measure_mode(True)
+    first = tab.profile_plot._map_data_to_widget(2.0, -2.0)
+    second = tab.profile_plot._map_data_to_widget(8.0, -8.0)
+    QTest.mouseClick(
+        tab.profile_plot,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(round(first.x()), round(first.y())),
+    )
+    QTest.mouseClick(
+        tab.profile_plot,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(round(second.x()), round(second.y())),
+    )
+    assert tab.profile_plot.measure_point_a is not None
+    assert tab.profile_plot.measure_point_b is not None
+    assert any(line.startswith("ΔdZ ") for line in tab.profile_plot._manual_measurement_annotation_lines())
+
+    tab.profile_plot.set_profile(source.profile)
+    assert tab.profile_plot.measure_point_a is None
+    assert not tab.profile_plot.measure_mode
+    assert tab.measure_button.isEnabled()
+    tab.profile_plot.measure_point_a = (2.0, 18.0)
+    tab.profile_plot.measure_point_b = (8.0, 12.0)
+    assert any(line.startswith("ΔZ ") for line in tab.profile_plot._manual_measurement_annotation_lines())
+    tab.profile_plot.set_overview(overview)
+    assert tab.profile_plot.measure_point_a is None
+    assert tab.profile_plot.measure_point_b is None
+
+    tab.profile_plot.set_profile(source.profile)
+    tab.profile_plot.measure_point_a = (2.0, 18.0)
+    tab._clear_calculated_result()
+    assert tab.profile_plot.measure_point_a is None
+    assert tab.profile_plot.mode == "empty"
+    assert not tab.measure_button.isEnabled()
+    source.deleteLater()
+    tab.deleteLater()
 
 
 def _complete_alignment(tab):

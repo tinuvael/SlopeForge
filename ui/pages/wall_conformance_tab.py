@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import hypot
+from math import atan2, degrees, hypot
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, Signal
@@ -597,6 +597,7 @@ class WallConformancePlanWidget(QWidget):
 
 class WallProfilePlot(QWidget):
     DISPLAY_CONTEXT_EXTENSION_M = 1.0
+    measurement_state_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -607,9 +608,13 @@ class WallProfilePlot(QWidget):
         self._actual_landmark_hit_targets = ()
         self.variant_index = 0
         self.mode = "empty"
+        self.measure_mode = False
+        self.measure_point_a = None
+        self.measure_point_b = None
         self.setMinimumSize(340, 280)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     @staticmethod
     def _dark_theme() -> bool:
@@ -669,20 +674,26 @@ class WallProfilePlot(QWidget):
         }
 
     def set_profile(self, profile, measurement=None) -> None:
+        self.clear_measurement()
+        self.set_measure_mode(False)
         self.profile = profile
         self.profile_set = None
         self.measurement = measurement
         self.measurements = ()
         self.mode = "selected" if profile is not None else "empty"
+        self.measurement_state_changed.emit()
         self.update()
 
     def set_overview(self, profile_set, variant_index: int = 0, measurements=()) -> None:
+        self.clear_measurement()
+        self.set_measure_mode(False)
         self.profile = None
         self.profile_set = profile_set
         self.measurement = None
         self.measurements = tuple(measurements)
         self.variant_index = variant_index
         self.mode = "overview"
+        self.measurement_state_changed.emit()
         self.update()
 
     def changeEvent(self, event):
@@ -996,21 +1007,11 @@ class WallProfilePlot(QWidget):
             max(1, self.height() - top - bottom),
         )
 
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        colors = self._colors()
-        painter.fillRect(self.rect(), colors["background"])
-
+    def _plot_data_bounds(self):
+        """Return the current display bounds without including ruler overlays."""
         points = self._points()
         if not points:
-            self._actual_landmark_hit_targets = ()
-            painter.setPen(colors["text"])
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No profile selected"))
-            return
-
-        left = 62
+            return None
         plot = self.plot_rect()
         u_values = [point.u for point in points]
         z_values = [point.z for point in points]
@@ -1024,20 +1025,149 @@ class WallProfilePlot(QWidget):
             z_max += 1.0
         u_pad = (u_max - u_min) * 0.025
         z_pad = (z_max - z_min) * 0.04
-        u_min, u_max = u_min - u_pad, u_max + u_pad
-        z_min, z_max = z_min - z_pad, z_max + z_pad
-        u_min, u_max, z_min, z_max = self._equal_aspect_bounds(
+        return self._equal_aspect_bounds(
             plot,
-            u_min,
-            u_max,
-            z_min,
-            z_max,
+            u_min - u_pad,
+            u_max + u_pad,
+            z_min - z_pad,
+            z_max + z_pad,
         )
 
+    def _map_data_to_widget(self, u: float, z: float, bounds=None) -> QPointF:
+        """Map engineering U/Z coordinates using the active paint transform."""
+        bounds = self._plot_data_bounds() if bounds is None else bounds
+        if bounds is None:
+            return QPointF()
+        u_min, u_max, z_min, z_max = bounds
+        plot = self.plot_rect()
+        return QPointF(
+            plot.left() + (u - u_min) / (u_max - u_min) * plot.width(),
+            plot.bottom() - (z - z_min) / (z_max - z_min) * plot.height(),
+        )
+
+    def _map_widget_to_data(self, point: QPointF, bounds=None):
+        """Invert the active paint transform for presentation-only clicks."""
+        bounds = self._plot_data_bounds() if bounds is None else bounds
+        if bounds is None:
+            return None
+        u_min, u_max, z_min, z_max = bounds
+        plot = self.plot_rect()
+        return (
+            u_min + (point.x() - plot.left()) / plot.width() * (u_max - u_min),
+            z_min + (plot.bottom() - point.y()) / plot.height() * (z_max - z_min),
+        )
+
+    @staticmethod
+    def _manual_measurement_values(point_a, point_b):
+        delta_u = point_b[0] - point_a[0]
+        delta_z = point_b[1] - point_a[1]
+        return (
+            delta_u,
+            delta_z,
+            hypot(delta_u, delta_z),
+            degrees(atan2(abs(delta_z), abs(delta_u))),
+        )
+
+    def set_measure_mode(self, enabled: bool) -> None:
+        enabled = bool(enabled) and self.mode in ("selected", "overview")
+        if self.measure_mode == enabled:
+            return
+        self.measure_mode = enabled
+        if enabled:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.unsetCursor()
+        self.setToolTip(tr("Click two points to measure") if enabled else "")
+        self.measurement_state_changed.emit()
+        self.update()
+
+    def clear_measurement(self) -> None:
+        if self.measure_point_a is None and self.measure_point_b is None:
+            return
+        self.measure_point_a = None
+        self.measure_point_b = None
+        self.measurement_state_changed.emit()
+        self.update()
+
+    def _manual_measurement_annotation_lines(self):
+        if self.measure_point_a is None or self.measure_point_b is None:
+            return ()
+        delta_u, delta_z, distance, angle = self._manual_measurement_values(
+            self.measure_point_a, self.measure_point_b
+        )
+        vertical_delta_label = "ΔdZ" if self.mode == "overview" else "ΔZ"
+        return (
+            tr("Manual measure"),
+            f"L  {distance:.2f} m",
+            f"ΔU {delta_u:+.2f} m",
+            f"{vertical_delta_label} {delta_z:+.2f} m",
+            f"A  {angle:.1f}°",
+        )
+
+    def _draw_manual_measurement(self, painter, colors, bounds) -> None:
+        if self.measure_point_a is None:
+            return
+        point_a = self._map_data_to_widget(*self.measure_point_a, bounds)
+        marker_pen = QPen(colors["design"], 1.5)
+        marker_pen.setCosmetic(True)
+        painter.setPen(marker_pen)
+        painter.setBrush(QBrush(colors["background"]))
+        painter.drawEllipse(point_a, 4.0, 4.0)
+        if self.measure_point_b is None:
+            return
+        point_b = self._map_data_to_widget(*self.measure_point_b, bounds)
+        painter.drawLine(point_a, point_b)
+        painter.drawEllipse(point_b, 4.0, 4.0)
+
+        lines = self._manual_measurement_annotation_lines()
+        metrics = QFontMetrics(painter.font())
+        padding = 7
+        width = max(metrics.horizontalAdvance(line) for line in lines) + padding * 2
+        height = metrics.lineSpacing() * len(lines) + padding * 2
+        plot = self.plot_rect()
+        annotation = QRectF(
+            max(plot.left() + 4, plot.right() - width - 4),
+            plot.top() + 4,
+            min(width, max(1.0, plot.width() - 8)),
+            min(height, max(1.0, plot.height() - 8)),
+        )
+        palette = _canvas_palette()
+        painter.setPen(QPen(palette["annotation_border"], 1))
+        painter.setBrush(QBrush(palette["annotation_background"]))
+        painter.drawRoundedRect(annotation, 3, 3)
+        painter.setPen(colors["text"])
+        for index, line in enumerate(lines):
+            painter.drawText(
+                QRectF(
+                    annotation.left() + padding,
+                    annotation.top() + padding + index * metrics.lineSpacing(),
+                    annotation.width() - padding * 2,
+                    metrics.height(),
+                ),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                line,
+            )
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        colors = self._colors()
+        painter.fillRect(self.rect(), colors["background"])
+
+        bounds = self._plot_data_bounds()
+        if bounds is None:
+            self._actual_landmark_hit_targets = ()
+            painter.setPen(colors["text"])
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No profile selected"))
+            return
+
+        left = 62
+        plot = self.plot_rect()
+        u_min, u_max, z_min, z_max = bounds
+
         def map_point(point):
-            x = plot.left() + (point.u - u_min) / (u_max - u_min) * plot.width()
-            y = plot.bottom() - (point.z - z_min) / (z_max - z_min) * plot.height()
-            return QPointF(x, y)
+            return self._map_data_to_widget(point.u, point.z, bounds)
 
         painter.setPen(QPen(colors["grid"], 1))
         metrics = QFontMetrics(painter.font())
@@ -1110,6 +1240,28 @@ class WallProfilePlot(QWidget):
                 painter.drawEllipse(location, 3.5, 3.5)
                 marker_targets.append((location, label))
         self._actual_landmark_hit_targets = tuple(marker_targets)
+        self._draw_manual_measurement(painter, colors, bounds)
+
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.mode in ("selected", "overview")
+            and self.measure_mode
+            and self.plot_rect().contains(event.position())
+        ):
+            point = self._map_widget_to_data(event.position())
+            if point is not None:
+                if self.measure_point_a is None or self.measure_point_b is not None:
+                    self.measure_point_a = point
+                    self.measure_point_b = None
+                else:
+                    self.measure_point_b = point
+                self.setFocus(Qt.FocusReason.MouseFocusReason)
+                self.measurement_state_changed.emit()
+                self.update()
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         for point, label in self._actual_landmark_hit_targets:
@@ -1282,9 +1434,22 @@ class WallConformanceTab(QWidget):
         self.profile_summary = QLabel("—")
         self.profile_summary.setObjectName("SummaryValue")
         selector_row.addWidget(self.profile_summary)
+        self.measure_button = QPushButton(tr("Measure"))
+        self.measure_button.setCheckable(True)
+        self.measure_button.setMinimumWidth(self.measure_button.sizeHint().width())
+        self.measure_button.setToolTip(tr("Click two points to measure"))
+        self.measure_button.setEnabled(False)
+        selector_row.addWidget(self.measure_button)
+        self.clear_measure_button = QPushButton(tr("Clear"))
+        self.clear_measure_button.setFixedWidth(52)
+        self.clear_measure_button.setEnabled(False)
+        selector_row.addWidget(self.clear_measure_button)
         selector_row.addStretch()
         profile_header_layout.addLayout(selector_row)
         self.profile_plot = WallProfilePlot()
+        self.measure_button.toggled.connect(self.profile_plot.set_measure_mode)
+        self.clear_measure_button.clicked.connect(self.profile_plot.clear_measurement)
+        self.profile_plot.measurement_state_changed.connect(self._sync_measure_controls)
         self.profile_legend = QLabel()
         self.profile_legend.setObjectName("MutedText")
         self.profile_legend.setWordWrap(True)
@@ -1496,6 +1661,17 @@ class WallConformanceTab(QWidget):
         if alignment is not None:
             self.status.setText(self.alignment_metadata.text())
             set_status_role(self.status, "info")
+
+    def _sync_measure_controls(self) -> None:
+        available = self.profile_plot.mode in ("selected", "overview")
+        self.measure_button.setEnabled(available)
+        self.measure_button.blockSignals(True)
+        self.measure_button.setChecked(self.profile_plot.measure_mode)
+        self.measure_button.blockSignals(False)
+        self.clear_measure_button.setEnabled(
+            self.profile_plot.measure_point_a is not None
+            or self.profile_plot.measure_point_b is not None
+        )
 
     def _clear_calculated_result(self) -> None:
         self.result = None
@@ -2100,6 +2276,21 @@ class WallConformanceTab(QWidget):
             self._select_profile(0)
 
     def eventFilter(self, watched, event):
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+            and self.profile_plot.mode in ("selected", "overview")
+            and self.profile_plot.measure_mode
+        ):
+            if (
+                self.profile_plot.measure_point_a is not None
+                and self.profile_plot.measure_point_b is None
+            ):
+                self.profile_plot.clear_measurement()
+            else:
+                self.profile_plot.set_measure_mode(False)
+            event.accept()
+            return True
         if (
             event.type() == QEvent.Type.KeyPress
             and event.key() == Qt.Key.Key_Escape

@@ -15,11 +15,9 @@ from application.services.wall_conformance import (
 from domain.geometry.surfaces import SurfaceTriangle, SurfaceVertex, TriangleSurface
 from domain.geometry.types import PlanPoint, PlanPolygon
 from domain.wall_conformance import (
-    ProfileSectionAssemblyError,
-    ProfileSectionAssemblyResult,
-    ProfileSectionDiagnostic,
     SurfaceRoleMapping,
-    build_v2_profile_sections,
+    WallAlignment,
+    build_alignment_profile_sections,
 )
 
 
@@ -108,139 +106,83 @@ class FakeSurfaceService:
         raise AssertionError(logical_id)
 
 
+def _alignment() -> WallAlignment:
+    return WallAlignment((PlanPoint(0.0, 4.0), PlanPoint(0.0, 16.0)))
+
+
 def test_diagnostic_service_loads_active_project_surfaces_and_builds_profiles() -> None:
     surface_service = FakeSurfaceService()
     service = WallConformanceDiagnosticService(surface_service)
-    expected = build_v2_profile_sections(
-        _bench(),
-        _bench(dx=surface_service.actual_dx),
-        _area(),
-        service.mapping_for_dataset(surface_service.design)[0],
-        requested_spacing_m=5.0,
+    expected = build_alignment_profile_sections(
+        alignment=_alignment(), design_surface=_bench(),
+        actual_surface=_bench(dx=surface_service.actual_dx),
+        assessment_polygon=_area(),
+        role_mapping=service.mapping_for_dataset(surface_service.design)[0],
+        spacing_m=5.0,
     )
-
     result = service.calculate_current(
-        1,
-        _area(),
-        WallConformanceDiagnosticSettings(spacing_m=5.0),
+        1, _area(), _alignment(), WallConformanceDiagnosticSettings(spacing_m=5.0)
     )
-
     assert result.design_dataset.logical_id == "DESIGN-1"
     assert result.actual_dataset.logical_id == "ACTUAL-1"
-    assert len(result.profile_set.profiles) == len(expected.profile_set.profiles) == 4
-    assert tuple(profile.alignment for profile in result.profile_set.profiles) == tuple(
-        profile.alignment for profile in expected.profile_set.profiles
-    )
+    assert len(result.profile_sections.profiles) == len(expected.profiles) == 4
     assert result.diagnostics == expected.diagnostics
 
 
-def test_diagnostic_service_uses_v2_contract_and_retains_diagnostics(
-    monkeypatch,
-) -> None:
-    mapping = SurfaceRoleMapping(
-        "COLOUR", ((2, "face"), (5, "berm"), (3, "road"))
-    )
-    surface_service = FakeSurfaceService(semantic_mapping=mapping.to_dict())
-    direct = build_v2_profile_sections(
-        _bench(), _bench(dx=1.0), _area(), mapping, requested_spacing_m=7.25
-    )
-    diagnostic = ProfileSectionDiagnostic("partial_sector", "Partial sector retained")
-    assembly = ProfileSectionAssemblyResult(
-        direct.profile_set,
-        direct.placement_result,
-        (diagnostic,),
+def test_diagnostic_service_uses_alignment_contract_and_retains_diagnostics(monkeypatch) -> None:
+    mapping = SurfaceRoleMapping("COLOUR", ((2, "face"), (5, "berm"), (3, "road")))
+    direct = build_alignment_profile_sections(
+        alignment=_alignment(), design_surface=_bench(), actual_surface=_bench(dx=1.0),
+        assessment_polygon=_area(), role_mapping=mapping, spacing_m=7.25,
     )
     captured = {}
 
-    def fake_builder(design_surface, actual_surface, polygon, role_mapping, **kwargs):
-        captured.update(
-            design_surface=design_surface,
-            actual_surface=actual_surface,
-            polygon=polygon,
-            role_mapping=role_mapping,
-            kwargs=kwargs,
-        )
-        return assembly
+    def fake_builder(**kwargs):
+        captured.update(kwargs)
+        return direct
 
-    monkeypatch.setattr(
-        wall_conformance_service_module, "build_v2_profile_sections", fake_builder
-    )
-    result = WallConformanceDiagnosticService(surface_service).calculate_current(
-        1, _area(), WallConformanceDiagnosticSettings(spacing_m=7.25)
-    )
-
+    monkeypatch.setattr(wall_conformance_service_module, "build_alignment_profile_sections", fake_builder)
+    result = WallConformanceDiagnosticService(
+        FakeSurfaceService(semantic_mapping=mapping.to_dict())
+    ).calculate_current(1, _area(), _alignment(), WallConformanceDiagnosticSettings(spacing_m=7.25))
     assert captured["design_surface"] is not captured["actual_surface"]
     assert captured["role_mapping"] == mapping
-    assert captured["kwargs"] == {"requested_spacing_m": 7.25}
-    assert result.profile_set is assembly.profile_set
-    assert result.diagnostics is assembly.diagnostics
+    assert captured["alignment"] == _alignment()
+    assert captured["spacing_m"] == 7.25
+    assert result.profile_sections is direct
 
 
-def test_changing_actual_changes_sections_but_not_v2_design_placement(monkeypatch) -> None:
-    import domain.wall_conformance as wall_conformance_domain
+def test_changing_actual_changes_sections_but_not_alignment_design_placement(monkeypatch) -> None:
+    first = WallConformanceDiagnosticService(FakeSurfaceService(actual_dx=1.0)).calculate_current(
+        1, _area(), _alignment(), WallConformanceDiagnosticSettings(5.0)
+    )
+    second = WallConformanceDiagnosticService(FakeSurfaceService(actual_dx=2.0)).calculate_current(
+        1, _area(), _alignment(), WallConformanceDiagnosticSettings(5.0)
+    )
+    placement = lambda result: tuple(
+        (profile.alignment.chainage_m, profile.alignment.origin, profile.alignment.normal_xy)
+        for profile in result.profile_sections.profiles
+    )
+    actual = lambda result: tuple(
+        tuple((segment.start, segment.end) for segment in profile.actual_segments)
+        for profile in result.profile_sections.profiles
+    )
+    assert placement(first) == placement(second)
+    assert actual(first) != actual(second)
 
-    def legacy_must_not_run(*_args, **_kwargs):
-        raise AssertionError("legacy build_transverse_profiles was called")
 
+def test_alignment_builder_failures_are_translated_with_cause(monkeypatch) -> None:
+    original = ValueError("no profiles")
     monkeypatch.setattr(
-        wall_conformance_domain, "build_transverse_profiles", legacy_must_not_run
+        wall_conformance_service_module,
+        "build_alignment_profile_sections",
+        lambda **_kwargs: (_ for _ in ()).throw(original),
     )
-    first = WallConformanceDiagnosticService(
-        FakeSurfaceService(actual_dx=1.0)
-    ).calculate_current(1, _area(), WallConformanceDiagnosticSettings(5.0))
-    second = WallConformanceDiagnosticService(
-        FakeSurfaceService(actual_dx=2.0)
-    ).calculate_current(1, _area(), WallConformanceDiagnosticSettings(5.0))
-
-    def placement_signature(result):
-        return tuple(
-            (
-                profile.alignment.chainage_m,
-                profile.alignment.origin,
-                profile.alignment.normal_xy,
-            )
-            for profile in result.profile_set.profiles
-        )
-
-    def actual_signature(result):
-        return tuple(
-            tuple((segment.start, segment.end) for segment in profile.actual_segments)
-            for profile in result.profile_set.profiles
-        )
-
-    assert placement_signature(first) == placement_signature(second)
-    assert actual_signature(first) != actual_signature(second)
-
-
-def test_profile_section_assembly_error_is_translated_with_cause(monkeypatch) -> None:
-    original = ProfileSectionAssemblyError(
-        "no profiles", placement_result=object(), diagnostics=()
-    )
-
-    def fail(*_args, **_kwargs):
-        raise original
-
-    monkeypatch.setattr(wall_conformance_service_module, "build_v2_profile_sections", fail)
-    with pytest.raises(
-        WallConformanceUnavailableError,
-        match="No usable Design wall profiles.*Assessment Area",
-    ) as caught:
+    with pytest.raises(WallConformanceUnavailableError, match="Wall Alignment") as caught:
         WallConformanceDiagnosticService(FakeSurfaceService()).calculate_current(
-            1, _area()
+            1, _area(), _alignment()
         )
-
     assert caught.value.__cause__ is original
-
-
-def test_unexpected_v2_error_is_not_retranslated(monkeypatch) -> None:
-    def fail(*_args, **_kwargs):
-        raise ValueError("unexpected programming error")
-
-    monkeypatch.setattr(wall_conformance_service_module, "build_v2_profile_sections", fail)
-    with pytest.raises(ValueError, match="unexpected programming error"):
-        WallConformanceDiagnosticService(FakeSurfaceService()).calculate_current(
-            1, _area()
-        )
 
 
 def test_active_settings_and_service_source_exclude_legacy_contract() -> None:
@@ -249,6 +191,7 @@ def test_active_settings_and_service_source_exclude_legacy_contract() -> None:
     ]
     source = Path(wall_conformance_service_module.__file__).read_text(encoding="utf-8")
     for obsolete_name in (
+        "build_v2_profile_sections",
         "build_transverse_profiles",
         "sample_wall_alignment",
         "select_primary_crest_line",
@@ -270,21 +213,21 @@ def test_diagnostic_service_refuses_database_only_storage_mode() -> None:
     )
 
     with pytest.raises(WallConformanceUnavailableError, match="Shared file storage"):
-        service.calculate_current(1, _area())
+        service.calculate_current(1, _area(), _alignment())
 
 
 def test_diagnostic_service_reports_missing_active_surface() -> None:
     service = WallConformanceDiagnosticService(FakeSurfaceService(actual=False))
 
     with pytest.raises(WallConformanceUnavailableError, match="Actual survey"):
-        service.calculate_current(1, _area())
+        service.calculate_current(1, _area(), _alignment())
 
 
 def test_diagnostic_service_reports_missing_design_surface() -> None:
     service = WallConformanceDiagnosticService(FakeSurfaceService(design=False))
 
     with pytest.raises(WallConformanceUnavailableError, match="Design surface"):
-        service.calculate_current(1, _area())
+        service.calculate_current(1, _area(), _alignment())
 
 
 class FakeButton:

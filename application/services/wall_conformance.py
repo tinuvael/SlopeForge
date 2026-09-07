@@ -10,7 +10,11 @@ from domain.wall_conformance import (
     PROTOTYPE_DESIGN_ROLE_MAPPING,
     SurfaceRoleMapping,
     WallAlignment,
+    WallMeasurementSummary,
+    WallProfileMeasurements,
+    aggregate_measurements,
     build_alignment_profile_sections,
+    measure_profiles,
     semantic_value_token,
 )
 
@@ -34,6 +38,8 @@ class WallConformanceDiagnosticResult:
     role_mapping: SurfaceRoleMapping
     mapping_is_fallback: bool
     diagnostics: tuple[AlignmentPlacementDiagnostic, ...] = ()
+    measurements: tuple[WallProfileMeasurements, ...] = ()
+    measurement_summary: WallMeasurementSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +184,7 @@ class WallConformanceDiagnosticService:
                 "No usable Design wall profiles could be assembled for this "
                 "Wall Alignment. Check its coverage and Design surface semantics."
             )
+        measurements = measure_profiles(assembly_result.profiles)
         return WallConformanceDiagnosticResult(
             design_dataset=design_dataset,
             actual_dataset=actual_dataset,
@@ -187,4 +194,6 @@ class WallConformanceDiagnosticService:
             role_mapping=role_mapping,
             mapping_is_fallback=mapping_is_fallback,
             diagnostics=assembly_result.diagnostics,
+            measurements=measurements,
+            measurement_summary=aggregate_measurements(measurements),
         )

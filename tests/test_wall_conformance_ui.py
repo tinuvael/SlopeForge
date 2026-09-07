@@ -18,7 +18,7 @@ from ui.pages import wall_conformance_tab as module
 from application.services.wall_conformance import (
     DesignSemanticInspection, SurfaceAttributeValueCount,
 )
-from domain.wall_conformance import AlignmentPlacementDiagnostic, SurfaceRoleMapping
+from domain.wall_conformance import AlignmentPlacementDiagnostic, SurfaceRoleMapping, WallAlignment
 from domain.wall_conformance.models import (
     DesignSection,
     DesignSectionElement,
@@ -131,11 +131,172 @@ def test_representative_plot_and_schedule_show_context_separately(monkeypatch) -
     assert "Upstream Road" in detail_text
     assert "W 12.0 m" in detail_text
     assert "H / A" in detail_text
-    assert any("H 10.0 m · A 65.0°" in text for text in detail_text)
+    assert any("10.0 m · 65.0°" in text for text in detail_text)
     assert "Lower toe" in detail_text
     assert tab.details_metadata.toolTip() == "FACE"
     tab.deleteLater()
     plot.deleteLater()
+
+
+def test_overview_actual_is_precisely_clipped_to_each_physical_measurement() -> None:
+    _app()
+    context = _representative_element("berm", -2.0, 2.0, 0.0, 0.0)
+    face = _representative_element("face", 2.0, 10.0, 0.0, -10.0)
+    variant = DesignVariant("FACE", (0,), (face,), context)
+    origin = SurfaceVertex(0.0, 0.0, 20.0)
+    profile = TransverseProfile(
+        WallAlignmentSample(0.0, origin, (1.0, 0.0), (0.0, 1.0)),
+        (),
+        (
+            SectionSegment(SectionPoint(-1.0, 21.0, -1.0, 0.0), SectionPoint(3.0, 20.0, 3.0, 0.0), 1),
+            SectionSegment(SectionPoint(3.0, 20.0, 3.0, 0.0), SectionPoint(6.0, 20.0, 6.0, 0.0), 2),
+            SectionSegment(SectionPoint(6.0, 20.0, 6.0, 0.0), SectionPoint(12.0, 10.0, 12.0, 0.0), 3),
+        ),
+        DesignSection(()), assessment_u_interval=(0.0, 12.0),
+    )
+    landmarks = SimpleNamespace(
+        upper_berm_start=SimpleNamespace(
+            point=SectionPoint(2.0, 20.25, 2.0, 0.0),
+            detection=SimpleNamespace(reliable=True),
+        ),
+        lower_toe=SimpleNamespace(
+            point=SectionPoint(10.0, 13.3333333333, 10.0, 0.0),
+            detection=SimpleNamespace(reliable=True),
+        ),
+    )
+    profile_set = SimpleNamespace(profiles=(profile,), design_variants=(variant,))
+    plot = module.WallProfilePlot()
+    plot.set_overview(profile_set, measurements=(SimpleNamespace(actual_landmarks=landmarks),))
+
+    _design, actual = plot._geometry()
+    rendered, display_context = plot._actual_render_layers()
+
+    assert [(segment.start.u, segment.end.u) for segment in actual] == [
+        (2.0, 3.0), (3.0, 6.0), (6.0, 10.0),
+    ]
+    assert rendered == actual
+    assert display_context == ()
+    plot.deleteLater()
+
+
+def test_overview_uses_all_evaluated_measurement_sections_not_raw_profile_geometry() -> None:
+    _app()
+    face = _representative_element("face", 0.0, 10.0, 0.0, -10.0)
+    variant = DesignVariant("FACE", (0, 1), (face,))
+    origin = SurfaceVertex(0.0, 0.0, 20.0)
+    measured_segments = (
+        SectionSegment(SectionPoint(-2.0, 20.0, -2.0, 0.0), SectionPoint(2.0, 20.0, 2.0, 0.0), 1),
+        SectionSegment(SectionPoint(2.0, 20.0, 2.0, 0.0), SectionPoint(10.0, 10.0, 10.0, 0.0), 2),
+    )
+    profiles = tuple(
+        TransverseProfile(
+            WallAlignmentSample(float(index), origin, (1.0, 0.0), (0.0, 1.0)),
+            (), (), DesignSection(()),
+            measurement_context=SimpleNamespace(actual_segments=measured_segments),
+        )
+        for index in range(2)
+    )
+    landmarks = SimpleNamespace(
+        upper_berm_start=SimpleNamespace(
+            point=SectionPoint(-1.0, 20.0, -1.0, 0.0),
+            detection=SimpleNamespace(reliable=True),
+        ),
+        upper_crest=SimpleNamespace(point=None, detection=SimpleNamespace(reliable=False)),
+        lower_toe=SimpleNamespace(
+            point=SectionPoint(9.0, 11.25, 9.0, 0.0),
+            detection=SimpleNamespace(reliable=True),
+        ),
+    )
+    plot = module.WallProfilePlot()
+    plot.set_overview(
+        SimpleNamespace(profiles=profiles, design_variants=(variant,)),
+        measurements=tuple(SimpleNamespace(actual_landmarks=landmarks) for _ in profiles),
+    )
+
+    _design, actual = plot._geometry()
+
+    assert [(segment.start.u, segment.end.u) for segment in actual] == [
+        (-1.0, 2.0), (2.0, 9.0), (-1.0, 2.0), (2.0, 9.0),
+    ]
+    assert all(segment.start.u >= -1.0 and segment.end.u <= 9.0 for segment in actual)
+    plot.deleteLater()
+
+
+def test_measurement_summary_uses_domain_aggregates_with_independent_counts(monkeypatch) -> None:
+    tab = _tab(monkeypatch)
+    aggregate = lambda median, mean, minimum, maximum, valid: SimpleNamespace(
+        median=median, mean=mean, minimum=minimum, maximum=maximum,
+        valid_count=valid, total_count=29,
+    )
+    tab.result = SimpleNamespace(measurement_summary=SimpleNamespace(
+        angle_deviation_deg=aggregate(1.8, 1.6, -0.6, 4.2, 27),
+        upper_berm_width_deviation_m=aggregate(-0.7, -0.8, -2.1, 0.3, 21),
+        toe_signed_offset_u_m=aggregate(0.9, 1.0, -0.4, 2.8, 26),
+    ))
+    tab._clear_detail_rows()
+    tab._add_measurement_summary(0)
+    text = [label.text() for label in tab.details_content.findChildren(module.QLabel)]
+
+    assert "Measurements" in text
+    assert "Q2 +1.8°" in text
+    assert "27/29" in text
+    assert "Q2 -0.7 m" in text
+    assert "21/29" in text
+    assert "Q2 +0.9 m" in text
+    assert "Median" not in text
+    assert any(
+        label.toolTip() == "Mean +1.6° · Range -0.6° … +4.2°"
+        for label in tab.details_content.findChildren(module.QLabel)
+    )
+    metric_widgets = [
+        tab.details_rows.itemAtPosition(row, column).widget()
+        for row in range(tab.details_rows.rowCount())
+        for column in range(3)
+        if tab.details_rows.itemAtPosition(row, column) is not None
+        and tab.details_rows.itemAtPosition(row, column).widget() is not None
+        and tab.details_rows.itemAtPosition(row, column).widget().objectName() != "SummaryValue"
+    ]
+    assert metric_widgets
+    assert all(
+        widget.sizePolicy().horizontalPolicy() == module.QSizePolicy.Policy.Ignored
+        for widget in metric_widgets
+    )
+    tab.deleteLater()
+
+
+def test_selected_measurement_schedule_shows_actual_deviations_and_boundary_berm_na(monkeypatch) -> None:
+    tab = _tab(monkeypatch)
+    crest = SectionPoint(0.0, 20.0, 0.0, 0.0)
+    toe = SectionPoint(8.0, 10.0, 8.0, 0.0)
+    profile = TransverseProfile(
+        WallAlignmentSample(35.1, SurfaceVertex(0.0, 0.0, 20.0), (1.0, 0.0), (0.0, 1.0)),
+        (), (), DesignSection((DesignSectionElement("face", crest, toe, (1,)),)),
+    )
+    landmark = lambda point, reason="detected": SimpleNamespace(
+        point=point, detection=SimpleNamespace(reason_code=reason),
+    )
+    tab.result = SimpleNamespace(measurements=(SimpleNamespace(
+        design_overall_angle_deg=65.0, actual_overall_angle_deg=62.8,
+        design_upper_berm_width_m=12.0, actual_upper_berm_width_m=None,
+        toe_signed_offset_u_m=1.5, angle_deviation_deg=-2.2,
+        upper_berm_width_deviation_m=None,
+        design_landmarks=SimpleNamespace(lower_toe=landmark(SectionPoint(25.5, 0, 0, 0))),
+        actual_landmarks=SimpleNamespace(
+            upper_berm_start=landmark(None, "boundary_truncated"),
+            lower_toe=landmark(SectionPoint(27.0, 0, 0, 0)),
+        ),
+    ),))
+    tab.profile_selector.addItem("Overview")
+    tab.profile_selector.addItem("Profile 1")
+    tab.profile_selector.setCurrentIndex(1)
+    tab._show_profile_details(profile)
+    text = [label.text() for label in tab.details_content.findChildren(module.QLabel)]
+
+    assert {"Design", "Actual", "Deviation"} <= set(text)
+    assert "65.0°" in text and "62.8°" in text and "-2.2°" in text
+    assert "25.5 m" in text and "27.0 m" in text and "+1.5 m" in text
+    assert text.count("N/A · Pit boundary") == 2
+    tab.deleteLater()
 
 
 def test_profile_schedule_uses_compact_design_geometry_rows(monkeypatch) -> None:
@@ -379,6 +540,54 @@ def test_engineering_parameter_labels_and_legend_contract(monkeypatch):
     _app().sendPostedEvents()
 
 
+def test_overview_renders_every_evaluated_actual_section_counted_as_coverage(monkeypatch):
+    tab = _tab(monkeypatch)
+    _complete_alignment(tab)
+    tab.calculate()
+
+    variant = tab.result.profile_sections.design_variants[0]
+    physical_profiles = tuple(
+        index for index in variant.profile_indices
+        if (
+            tab.result.measurements[index].actual_landmarks.upper_berm_start.detection.reliable
+            or tab.result.measurements[index].actual_landmarks.upper_crest.detection.reliable
+        )
+        and tab.result.measurements[index].actual_landmarks.lower_toe.detection.reliable
+    )
+    covered = tuple(
+        index for index in variant.profile_indices
+        if tab.profile_plot._profile_has_compatible_actual_display(
+            tab.result.profile_sections.profiles[index], tab.result.measurements[index]
+        )
+    )
+    _design, actual = tab.profile_plot._geometry()
+    rendered, context = tab.profile_plot._actual_render_layers()
+
+    assert len(actual) == sum(
+        len(tab.profile_plot._clip_segments_to_u_interval(
+            tab.profile_plot._profile_actual_measurement_geometry(
+                tab.result.profile_sections.profiles[index]
+            ),
+            (
+                (
+                    tab.result.measurements[index].actual_landmarks.upper_berm_start.point
+                    if tab.result.measurements[index].actual_landmarks.upper_berm_start.detection.reliable
+                    else tab.result.measurements[index].actual_landmarks.upper_crest.point
+                ).u,
+                tab.result.measurements[index].actual_landmarks.lower_toe.point.u,
+            ),
+        ))
+        for index in physical_profiles
+    )
+    assert rendered == actual
+    assert context == ()
+    assert "Actual coverage: %s / %s" % (len(covered), len(variant.profile_indices)) in (
+        tab.profile_summary.text()
+    )
+    tab.deleteLater()
+    _app().sendPostedEvents()
+
+
 def test_overview_selected_and_escape_modes_are_distinct(monkeypatch):
     from PySide6.QtTest import QTest
 
@@ -469,6 +678,123 @@ def test_initial_alignment_workflow_and_clear_preserve_assessment(monkeypatch):
     assert tab.plan._area_item is not None
     tab.deleteLater()
     _app().sendPostedEvents()
+
+
+class _AlignmentController:
+    def __init__(self, alignment=None):
+        self.alignment = alignment
+        self.loaded = []
+        self.saved = []
+        self.cleared = []
+
+    def load_wall_alignment(self, area, revision):
+        self.loaded.append((area, revision))
+        return self.alignment
+
+    def save_wall_alignment(self, area, alignment):
+        self.saved.append((area, alignment))
+        self.alignment = alignment
+
+    def clear_wall_alignment(self, area):
+        self.cleared.append(area)
+        self.alignment = None
+
+
+class _FailingAlignmentController(_AlignmentController):
+    def save_wall_alignment(self, area, alignment):
+        raise RuntimeError("Wall Alignment could not be saved")
+
+
+def test_saved_alignment_loads_edits_and_clears_through_controller(monkeypatch):
+    saved = WallAlignment((PlanPoint(0, 4), PlanPoint(0, 16)))
+    controller = _AlignmentController(saved)
+    area, revision = object(), object()
+    _app()
+    monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
+    tab = module.WallConformanceTab(
+        object(), 1, _area(), area=area, geometry_revision=revision,
+        controller=controller,
+    )
+
+    assert controller.loaded == [(area, revision)]
+    assert tab.plan.wall_alignment == saved
+    assert tab.set_alignment_button.text() == "Edit Wall Alignment"
+    assert "2 vertices" in tab.alignment_metadata.text()
+    tab.calculate()
+    assert tab.result is not None
+
+    tab._begin_alignment_drawing()
+    tab.plan._handle_scene_click(1.0, 4.0)
+    tab.plan._complete_draft_from_double_click(1.0, 16.0)
+    assert controller.alignment == tab.plan.wall_alignment
+    assert controller.alignment != saved
+    assert tab.result is None
+
+    tab.calculate()
+    assert tab.result is not None
+    tab._clear_wall_alignment()
+    assert controller.alignment is None
+    assert controller.cleared == [area]
+    assert tab.plan.wall_alignment is None
+    assert tab.result is None
+    assert tab.set_alignment_button.text() == "Set Wall Alignment"
+    tab.deleteLater()
+
+
+def test_read_only_alignment_controls_do_not_modify_persisted_state(monkeypatch):
+    controller = _AlignmentController(WallAlignment((PlanPoint(0, 4), PlanPoint(0, 16))))
+    _app()
+    monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
+    tab = module.WallConformanceTab(
+        object(), 1, _area(), area=object(), geometry_revision=object(),
+        controller=controller, read_only=True,
+    )
+
+    assert not tab.set_alignment_button.isEnabled()
+    assert not tab.clear_alignment_button.isEnabled()
+    tab._begin_alignment_drawing()
+    tab._clear_wall_alignment()
+    assert not controller.saved and not controller.cleared
+    assert tab.plan.wall_alignment == controller.alignment
+    tab.deleteLater()
+
+
+def test_historical_geometry_alignment_is_displayed_but_not_editable(monkeypatch):
+    saved = WallAlignment((PlanPoint(0, 4), PlanPoint(0, 16)))
+    controller = _AlignmentController(saved)
+    area = SimpleNamespace(active_geometry_revision_id="CURRENT")
+    revision = SimpleNamespace(id="HISTORICAL")
+    _app()
+    monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
+    tab = module.WallConformanceTab(
+        object(), 1, _area(), area=area, geometry_revision=revision,
+        controller=controller,
+    )
+
+    assert tab.plan.wall_alignment == saved
+    assert not tab.set_alignment_button.isEnabled()
+    assert not tab.clear_alignment_button.isEnabled()
+    tab._clear_wall_alignment()
+    assert not controller.cleared
+    tab.deleteLater()
+
+
+def test_alignment_save_failure_restores_the_previous_displayed_alignment(monkeypatch):
+    saved = WallAlignment((PlanPoint(0, 4), PlanPoint(0, 16)))
+    controller = _FailingAlignmentController(saved)
+    _app()
+    monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
+    tab = module.WallConformanceTab(
+        object(), 1, _area(), area=object(), geometry_revision=object(),
+        controller=controller,
+    )
+
+    tab._begin_alignment_drawing()
+    tab.plan._handle_scene_click(1.0, 4.0)
+    tab.plan._complete_draft_from_double_click(1.0, 16.0)
+    assert tab.plan.wall_alignment == saved
+    assert "could not be saved" in tab.status.text()
+    tab.deleteLater()
 
 
 def test_two_pane_workspace_uses_matching_canvas_hosts_and_wider_plan(monkeypatch):

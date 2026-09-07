@@ -20,6 +20,17 @@ def profile(segments, crest_z=100):
     )
 
 
+def profile_with_upstream_context(role: str | None):
+    core = (
+        segment((0, 100), (5, 90), "face", 2),
+        segment((5, 90), (9, 90), "berm", 3),
+        segment((9, 90), (19, 70), "face", 4),
+    )
+    if role is None:
+        return profile(core)
+    return profile((segment((-6, 101), (0, 100), role, 1), *core))
+
+
 def test_semantic_section_collapses_fragments_and_preserves_real_transitions():
     section = build_design_section((
         segment((0, 100), (2, 96), "face", 1),
@@ -89,6 +100,37 @@ def test_representative_preserves_upper_platform_as_context_only():
     assert variant.upstream_context.role == "berm"
     assert variant.upstream_context.end_u == 0
     assert [element.height_median for element in variant.elements if element.role == "face"] == [10, 20]
+
+
+def test_representative_variants_split_context_from_same_assessed_topology():
+    road_first = profile_with_upstream_context("road")
+    road_second = profile_with_upstream_context("road")
+    no_context = profile_with_upstream_context(None)
+
+    variants = build_design_variants((road_first, road_second, no_context))
+
+    assert len(variants) == 2
+    road_variant = next(variant for variant in variants if variant.upstream_context)
+    empty_variant = next(variant for variant in variants if not variant.upstream_context)
+    assert road_variant.profile_indices == (0, 1)
+    assert road_variant.signature == empty_variant.signature == "FACE-BERM-FACE"
+    assert road_variant.upstream_context.role == "road"
+    assert road_variant.upstream_context.start_u == -6
+    assert road_variant.upstream_context.end_u == 0
+    assert empty_variant.profile_indices == (2,)
+    assert empty_variant.upstream_context is None
+    assert [element.role for element in road_variant.elements] == ["face", "berm", "face"]
+
+
+def test_representative_variants_keep_road_and_berm_contexts_separate():
+    variants = build_design_variants((
+        profile_with_upstream_context("road"),
+        profile_with_upstream_context("berm"),
+    ))
+
+    assert len(variants) == 2
+    assert {variant.upstream_context.role for variant in variants} == {"road", "berm"}
+    assert all(variant.signature == "FACE-BERM-FACE" for variant in variants)
 
 
 def test_representative_design_parameters_ignore_actual_geometry():

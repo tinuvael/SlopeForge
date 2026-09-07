@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -595,14 +596,20 @@ class WallConformancePlanWidget(QWidget):
 
 
 class WallProfilePlot(QWidget):
+    DISPLAY_CONTEXT_EXTENSION_M = 1.0
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.profile = None
         self.profile_set = None
+        self.measurement = None
+        self.measurements = ()
+        self._actual_landmark_hit_targets = ()
         self.variant_index = 0
         self.mode = "empty"
         self.setMinimumSize(340, 280)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMouseTracking(True)
 
     @staticmethod
     def _dark_theme() -> bool:
@@ -661,15 +668,19 @@ class WallProfilePlot(QWidget):
             "ignore": QColor("#94a3b8"),
         }
 
-    def set_profile(self, profile) -> None:
+    def set_profile(self, profile, measurement=None) -> None:
         self.profile = profile
         self.profile_set = None
+        self.measurement = measurement
+        self.measurements = ()
         self.mode = "selected" if profile is not None else "empty"
         self.update()
 
-    def set_overview(self, profile_set, variant_index: int = 0) -> None:
+    def set_overview(self, profile_set, variant_index: int = 0, measurements=()) -> None:
         self.profile = None
         self.profile_set = profile_set
+        self.measurement = None
+        self.measurements = tuple(measurements)
         self.variant_index = variant_index
         self.mode = "overview"
         self.update()
@@ -680,10 +691,11 @@ class WallProfilePlot(QWidget):
             self.update()
 
     def _points(self):
-        design, actual = self._geometry()
+        design, _ = self._geometry()
+        evaluated_actual, context_actual = self._actual_render_layers()
         return tuple(
             point
-            for segment in (*design, *actual)
+            for segment in (*design, *evaluated_actual, *context_actual)
             for point in (segment.start, segment.end)
         )
 
@@ -715,18 +727,254 @@ class WallProfilePlot(QWidget):
                 semantic_role=e.role,
             ) for e in representative_elements if e.role != "ignore"
         )
+        return design, self._overview_actual_geometry(variant)
+
+    @staticmethod
+    def _interpolate_section_point(start, end, fraction: float):
+        """Return a presentation-only point on an existing section segment."""
+        return SimpleNamespace(
+            u=start.u + (end.u - start.u) * fraction,
+            z=start.z + (end.z - start.z) * fraction,
+            x=start.x + (end.x - start.x) * fraction,
+            y=start.y + (end.y - start.y) * fraction,
+        )
+
+    @classmethod
+    def _clip_segments_to_u_interval(cls, segments, interval):
+        """Precisely clip existing section geometry without changing its source."""
+        if interval is None:
+            return ()
+        lower, upper = sorted(interval)
+        clipped = []
+        for segment in segments:
+            start, end = segment.start, segment.end
+            delta_u = end.u - start.u
+            fractions = [0.0, 1.0]
+            if abs(delta_u) > 1e-12:
+                for boundary in (lower, upper):
+                    fraction = (boundary - start.u) / delta_u
+                    if 1e-12 < fraction < 1.0 - 1e-12:
+                        fractions.append(fraction)
+            fractions = sorted(set(fractions))
+            for first, second in zip(fractions, fractions[1:]):
+                midpoint_u = start.u + delta_u * ((first + second) / 2.0)
+                if not lower <= midpoint_u <= upper:
+                    continue
+                clipped.append(
+                    SimpleNamespace(
+                        start=cls._interpolate_section_point(start, end, first),
+                        end=cls._interpolate_section_point(start, end, second),
+                        semantic_role=getattr(segment, "semantic_role", None),
+                    )
+                )
+        return tuple(clipped)
+
+    @staticmethod
+    def _profile_actual_measurement_geometry(profile):
+        context = getattr(profile, "measurement_context", None)
+        return context.actual_segments if context is not None else profile.actual_segments
+
+    @staticmethod
+    def _reliable_actual_landmark_from(measurement, name):
+        landmarks = getattr(measurement, "actual_landmarks", None)
+        landmark = getattr(landmarks, name, None)
+        return landmark.point if landmark is not None and landmark.detection.reliable else None
+
+    def _overview_actual_geometry(self, variant):
+        """Render each profile's measured physical wall interval only.
+
+        The Overview is a family of independently measured profiles.  It uses
+        no selected-profile display context and never falls back to the
+        Assessment clip: a profile without reliable physical endpoints simply
+        contributes no Actual trace until its geometry can be diagnosed.
+        """
         actual = []
         for index in variant.profile_indices:
+            if not 0 <= index < len(self.measurements):
+                continue
             profile = self.profile_set.profiles[index]
+            measurement = self.measurements[index]
+            upper_start = self._reliable_actual_landmark_from(
+                measurement, "upper_berm_start"
+            )
+            upper_crest = self._reliable_actual_landmark_from(
+                measurement, "upper_crest"
+            )
+            lower_toe = self._reliable_actual_landmark_from(
+                measurement, "lower_toe"
+            )
+            upper = upper_start or upper_crest
+            if upper is None or lower_toe is None or lower_toe.u < upper.u:
+                continue
+            measured_segments = self._profile_actual_measurement_geometry(profile)
+            if not self._clip_segments_to_u_interval(
+                measured_segments, (upper.u, lower_toe.u),
+            ):
+                continue
             origin_z = profile.alignment.origin.z
             actual.extend(
                 SimpleNamespace(
-                    start=SectionPoint(s.start.u, s.start.z-origin_z, s.start.x, s.start.y),
-                    end=SectionPoint(s.end.u, s.end.z-origin_z, s.end.x, s.end.y),
+                    start=SectionPoint(s.start.u, s.start.z - origin_z, s.start.x, s.start.y),
+                    end=SectionPoint(s.end.u, s.end.z - origin_z, s.end.x, s.end.y),
                     semantic_role=None,
-                ) for s in profile.actual_segments
+                )
+                for s in self._clip_segments_to_u_interval(
+                    measured_segments,
+                    (upper.u, lower_toe.u),
+                )
             )
-        return design, tuple(actual)
+        return tuple(actual)
+
+    def _raw_actual_measurement_geometry(self):
+        if self.mode != "selected" or self.profile is None:
+            return ()
+        return self._profile_actual_measurement_geometry(self.profile)
+
+    def _display_fallback_actual_geometry(self):
+        """Conservative display-only fallback when physical bounds are unknown."""
+        if self.mode != "selected" or self.profile is None:
+            return ()
+        # ``actual_segments`` retains the established presentation clip.  It
+        # must not feed detection, which now needs the full bounded U context
+        # for displaced floors and crests.
+        return self.profile.actual_segments
+
+    def _reliable_actual_landmark(self, name):
+        return self._reliable_actual_landmark_from(self.measurement, name)
+
+    def _visible_actual_interval(self):
+        """Physical display endpoints, never the spatial Assessment mask."""
+        upper_start = self._reliable_actual_landmark("upper_berm_start")
+        upper_crest = self._reliable_actual_landmark("upper_crest")
+        lower_toe = self._reliable_actual_landmark("lower_toe")
+        if lower_toe is None:
+            return None
+        upper = upper_start or upper_crest
+        if upper is None:
+            return None
+        return tuple(sorted((upper.u, lower_toe.u)))
+
+    @classmethod
+    def _profile_has_compatible_actual_display(cls, profile, measurement):
+        upper_start = cls._reliable_actual_landmark_from(
+            measurement, "upper_berm_start"
+        )
+        upper_crest = cls._reliable_actual_landmark_from(
+            measurement, "upper_crest"
+        )
+        lower_toe = cls._reliable_actual_landmark_from(measurement, "lower_toe")
+        upper = upper_start or upper_crest
+        if upper is None or lower_toe is None or lower_toe.u < upper.u:
+            return False
+        return bool(cls._clip_segments_to_u_interval(
+            profile.actual_segments,
+            (upper.u, lower_toe.u),
+        ))
+
+    @classmethod
+    def _profile_has_overview_actual_display(cls, profile, measurement):
+        """Whether the evaluated measurement span can contribute to Overview."""
+        upper_start = cls._reliable_actual_landmark_from(
+            measurement, "upper_berm_start"
+        )
+        upper_crest = cls._reliable_actual_landmark_from(
+            measurement, "upper_crest"
+        )
+        lower_toe = cls._reliable_actual_landmark_from(measurement, "lower_toe")
+        upper = upper_start or upper_crest
+        if upper is None or lower_toe is None or lower_toe.u < upper.u:
+            return False
+        return bool(cls._clip_segments_to_u_interval(
+            cls._profile_actual_measurement_geometry(profile),
+            (upper.u, lower_toe.u),
+        ))
+
+    def _has_compatible_actual_display(self, interval):
+        """Keep raw detector input separate from a normal evaluated trace."""
+        if self.profile is None or interval is None:
+            return False
+        # ``actual_segments`` is the existing local presentation clip.  It is
+        # never fed back into landmark detection, but it provides a conservative
+        # guard against presenting a remote floating intersection as the wall.
+        return self._profile_has_compatible_actual_display(
+            self.profile, self.measurement,
+        )
+
+    def _measurement_context_geometry(self):
+        """Small real continuations outside the detected engineering section."""
+        interval = self._visible_actual_interval()
+        if interval is None:
+            return self._display_fallback_actual_geometry()
+        lower, upper = interval
+        raw = self._raw_actual_measurement_geometry()
+        return (
+            *self._clip_segments_to_u_interval(
+                raw, (lower - self.DISPLAY_CONTEXT_EXTENSION_M, lower)
+            ),
+            *self._clip_segments_to_u_interval(
+                raw, (upper, upper + self.DISPLAY_CONTEXT_EXTENSION_M)
+            ),
+        )
+
+    def _actual_render_layers(self):
+        """Return physical engineering Actual and secondary real context."""
+        # Overview represents every evaluated Actual section in the selected
+        # Design variant. It has no selected measurement/landmark interval, so
+        # selected-profile context rules must not suppress this layer.
+        if self.mode == "overview":
+            return self._geometry()[1], ()
+        interval = self._visible_actual_interval()
+        if interval is None:
+            return (), self._measurement_context_geometry()
+        if not self._has_compatible_actual_display(interval):
+            return (), self._measurement_context_geometry()
+        evaluated = self._clip_segments_to_u_interval(
+            self._raw_actual_measurement_geometry(), interval
+        )
+        if not evaluated:
+            # Some legacy-selected profiles retain only the presentation clip.
+            # It remains eligible only after the independent landmark/topology
+            # gate above; detector input is never changed or replaced.
+            evaluated = self._clip_segments_to_u_interval(
+                self.profile.actual_segments, interval
+            )
+        return (
+            evaluated,
+            self._measurement_context_geometry(),
+        )
+
+    def _reliable_actual_landmarks(self):
+        landmarks = getattr(self.measurement, "actual_landmarks", None)
+        output = []
+        for label, name in (
+            (tr("Actual upper berm start"), "upper_berm_start"),
+            (tr("Actual upper crest"), "upper_crest"),
+            (tr("Actual lower toe"), "lower_toe"),
+        ):
+            landmark = getattr(landmarks, name, None)
+            if landmark is None or not landmark.detection.reliable:
+                continue
+            if (
+                name == "upper_crest"
+                and getattr(landmark, "source", "physical_breakpoint")
+                == "boundary_face_run_onset"
+            ):
+                label = tr("Actual upper crest · face-run onset")
+            elif (
+                name == "upper_crest"
+                and getattr(landmark, "source", "physical_breakpoint")
+                == "boundary_design_elevation_fallback"
+            ):
+                label = tr("Actual upper crest · elevation fallback")
+            output.append((label, landmark.point))
+        return tuple(output)
+
+    @staticmethod
+    def _measurement_context_pen(color):
+        pen = QPen(color, 1.25)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        return pen
 
     @staticmethod
     def _legend_rows(profile):
@@ -757,6 +1005,7 @@ class WallProfilePlot(QWidget):
 
         points = self._points()
         if not points:
+            self._actual_landmark_hit_targets = ()
             painter.setPen(colors["text"])
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("No profile selected"))
             return
@@ -825,30 +1074,74 @@ class WallProfilePlot(QWidget):
         painter.drawText(QRectF(-plot.height() / 2, -12, plot.height(), 24), Qt.AlignmentFlag.AlignCenter, vertical_axis)
         painter.restore()
 
-        design, actual = self._geometry()
-        def draw_segments(segments, color, base_width, semantic=False):
+        design, _ = self._geometry()
+        evaluated_actual, context_actual = self._actual_render_layers()
+        def draw_segments(segments, color, base_width, semantic=False, *, dashed=False):
             for segment in segments:
                 width = base_width
                 role = str(getattr(segment, "semantic_role", "") or "").lower()
                 segment_color = colors.get(role, color) if semantic else color
-                painter.setPen(QPen(segment_color, width))
+                pen = (
+                    self._measurement_context_pen(segment_color)
+                    if dashed else QPen(segment_color, width)
+                )
+                painter.setPen(pen)
                 painter.drawLine(map_point(segment.start), map_point(segment.end))
 
         draw_segments(design, colors["design"], 3.0 if self.mode == "overview" else 2.3, True)
         actual_color = QColor(colors["actual"])
         if self.mode == "overview":
             actual_color.setAlpha(90)
-        draw_segments(actual, actual_color, 1.0 if self.mode == "overview" else 2.2)
+        draw_segments(evaluated_actual, actual_color, 1.0 if self.mode == "overview" else 2.2)
+        if self.mode == "selected":
+            context_color = QColor(colors["actual"])
+            context_color.setAlpha(120)
+            draw_segments(
+                context_actual, context_color, 1.25, dashed=True
+            )
+        marker_targets = []
+        if self.mode == "selected":
+            marker_pen = QPen(colors["actual"], 1.25)
+            marker_pen.setCosmetic(True)
+            painter.setPen(marker_pen)
+            painter.setBrush(QBrush(colors["background"]))
+            for label, point in self._reliable_actual_landmarks():
+                location = map_point(point)
+                painter.drawEllipse(location, 3.5, 3.5)
+                marker_targets.append((location, label))
+        self._actual_landmark_hit_targets = tuple(marker_targets)
+
+    def mouseMoveEvent(self, event):
+        for point, label in self._actual_landmark_hit_targets:
+            if hypot(event.position().x() - point.x(), event.position().y() - point.y()) <= 8:
+                QToolTip.showText(event.globalPosition().toPoint(), label, self)
+                event.accept()
+                return
+        QToolTip.hideText()
+        super().mouseMoveEvent(event)
 
 
 class WallConformanceTab(QWidget):
     """Read-only diagnostic view for current Project design vs actual surfaces."""
 
-    def __init__(self, context, site_id: int, assessment_polygon: PlanPolygon, parent=None):
+    def __init__(self, context, site_id: int, assessment_polygon: PlanPolygon, parent=None,
+                 *, area=None, geometry_revision=None, controller=None,
+                 read_only: bool = False):
         super().__init__(parent)
         self.context = context
         self.site_id = site_id
         self.assessment_polygon = assessment_polygon
+        self.area = area
+        self.geometry_revision = geometry_revision
+        self.controller = controller
+        active_revision_id = getattr(area, "active_geometry_revision_id", None)
+        revision_id = getattr(geometry_revision, "id", None)
+        self.read_only = bool(
+            read_only
+            or (active_revision_id is not None and revision_id != active_revision_id)
+        )
+        self._alignment_before_drawing = None
+        self._alignment_load_error: str | None = None
         self.service = WallConformanceDiagnosticService(
             create_project_surface_dataset_service(context)
         )
@@ -1038,9 +1331,11 @@ class WallConformanceTab(QWidget):
         )
         self.details_rows = QGridLayout(self.details_content)
         self.details_rows.setContentsMargins(0, 0, 0, 0)
-        self.details_rows.setHorizontalSpacing(8)
+        self.details_rows.setHorizontalSpacing(6)
         self.details_rows.setVerticalSpacing(3)
         self.details_rows.setColumnStretch(0, 1)
+        self.details_rows.setColumnStretch(1, 1)
+        self.details_rows.setColumnStretch(2, 0)
         self.details_rows.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._detail_stretch_row = None
         self.details_scroll.setWidget(self.details_content)
@@ -1065,6 +1360,7 @@ class WallConformanceTab(QWidget):
         self.splitter = splitter
         self._splitter_initialised = False
         root.addWidget(splitter, 1)
+        self._load_saved_wall_alignment()
         self._refresh_dataset_metadata()
         self._refresh_calculation_availability()
 
@@ -1132,6 +1428,11 @@ class WallConformanceTab(QWidget):
         self.edit_semantics.setEnabled(bool(getattr(self.service.surface_service, "storage_available", True)))
 
     def _refresh_calculation_availability(self) -> None:
+        if self._alignment_load_error is not None:
+            self.calculate_button.setEnabled(False)
+            self.status.setText(self._alignment_load_error)
+            set_status_role(self.status, "error")
+            return
         try:
             design, actual = self.service.current_datasets(self.site_id)
         except Exception as exc:
@@ -1160,6 +1461,42 @@ class WallConformanceTab(QWidget):
             return
         self.calculate_button.setEnabled(True)
 
+    def _set_wall_alignment_state(self, alignment: WallAlignment | None) -> None:
+        self.plan.set_wall_alignment(alignment)
+        has_alignment = alignment is not None
+        self.clear_alignment_button.setEnabled(has_alignment and not self.read_only)
+        self.set_alignment_button.setEnabled(not self.read_only)
+        self.set_alignment_button.setText(
+            tr("Edit Wall Alignment") if has_alignment else tr("Set Wall Alignment")
+        )
+        if alignment is None:
+            self.alignment_metadata.setText(tr("Wall Alignment · not set"))
+            return
+        self.alignment_metadata.setText(
+            tr("Wall Alignment · %1 vertices · %2 m")
+            .replace("%1", str(len(alignment.points)))
+            .replace("%2", f"{alignment.length_m:.1f}")
+        )
+
+    def _load_saved_wall_alignment(self) -> None:
+        if self.controller is None or self.area is None or self.geometry_revision is None:
+            self._set_wall_alignment_state(None)
+            return
+        try:
+            alignment = self.controller.load_wall_alignment(
+                self.area, self.geometry_revision
+            )
+        except Exception as exc:
+            self._alignment_load_error = str(exc)
+            self._set_wall_alignment_state(None)
+            self.status.setText(self._alignment_load_error)
+            set_status_role(self.status, "error")
+            return
+        self._set_wall_alignment_state(alignment)
+        if alignment is not None:
+            self.status.setText(self.alignment_metadata.text())
+            set_status_role(self.status, "info")
+
     def _clear_calculated_result(self) -> None:
         self.result = None
         self.profile_selector.clear()
@@ -1173,19 +1510,26 @@ class WallConformanceTab(QWidget):
         self._clear_details()
 
     def _begin_alignment_drawing(self) -> None:
+        if self.read_only:
+            return
+        self._alignment_before_drawing = self.plan.wall_alignment
         self.plan.begin_alignment_drawing()
         self.status.setText(tr("Draw Wall Alignment: click vertices, then press Enter or double-click to finish. Esc cancels."))
         set_status_role(self.status, "info")
 
     def _wall_alignment_completed(self, alignment: WallAlignment) -> None:
+        previous = self._alignment_before_drawing
+        try:
+            if self.controller is not None and self.area is not None:
+                self.controller.save_wall_alignment(self.area, alignment)
+        except Exception as exc:
+            self._set_wall_alignment_state(previous)
+            self.status.setText(str(exc))
+            set_status_role(self.status, "error")
+            return
         self._clear_calculated_result()
-        self.clear_alignment_button.setEnabled(True)
-        self.set_alignment_button.setText(tr("Edit Wall Alignment"))
-        self.alignment_metadata.setText(
-            tr("Wall Alignment · %1 vertices · %2 m")
-            .replace("%1", str(len(alignment.points)))
-            .replace("%2", f"{alignment.length_m:.1f}")
-        )
+        self._alignment_load_error = None
+        self._set_wall_alignment_state(alignment)
         self.status.setText(self.alignment_metadata.text())
         set_status_role(self.status, "success")
         self._refresh_calculation_availability()
@@ -1203,11 +1547,18 @@ class WallConformanceTab(QWidget):
             set_status_role(self.status, "info")
 
     def _clear_wall_alignment(self) -> None:
-        self.plan.set_wall_alignment(None)
+        if self.read_only:
+            return
+        try:
+            if self.controller is not None and self.area is not None:
+                self.controller.clear_wall_alignment(self.area)
+        except Exception as exc:
+            self.status.setText(str(exc))
+            set_status_role(self.status, "error")
+            return
+        self._set_wall_alignment_state(None)
         self._clear_calculated_result()
-        self.clear_alignment_button.setEnabled(False)
-        self.set_alignment_button.setText(tr("Set Wall Alignment"))
-        self.alignment_metadata.setText(tr("Wall Alignment · not set"))
+        self._alignment_load_error = None
         self._refresh_calculation_availability()
 
     def _edit_design_semantics(self) -> None:
@@ -1313,15 +1664,21 @@ class WallConformanceTab(QWidget):
             self.profile_selector.blockSignals(False)
             self.plan.set_selected_profile(-1)
             self.profile_plot.set_overview(
-                self.result.profile_sections, max(0, self.variant_selector.currentIndex())
+                self.result.profile_sections,
+                max(0, self.variant_selector.currentIndex()),
+                self.result.measurements,
             )
             self._update_profile_legend()
             variant = self.result.profile_sections.design_variants[
                 max(0, self.variant_selector.currentIndex())
             ]
             coverage = sum(
-                bool(self.result.profile_sections.profiles[i].actual_segments)
+                self.profile_plot._profile_has_overview_actual_display(
+                    self.result.profile_sections.profiles[i],
+                    self.result.measurements[i],
+                )
                 for i in variant.profile_indices
+                if i < len(self.result.measurements)
             )
             self.profile_summary.setText(
                 tr("Actual coverage: %1 / %2 profiles · Select a profile to inspect")
@@ -1339,12 +1696,23 @@ class WallConformanceTab(QWidget):
             self.profile_selector.blockSignals(False)
         profile = self.result.profile_sections.profiles[profile_index]
         self.plan.set_selected_profile(profile_index)
-        self.profile_plot.set_profile(profile)
+        measurement = (
+            self.result.measurements[profile_index]
+            if profile_index < len(self.result.measurements) else None
+        )
+        self.profile_plot.set_profile(profile, measurement)
         self._update_profile_legend()
         self.profile_summary.setText(
             tr("Profile %1").replace("%1", str(profile_index + 1))
         )
-        if not profile.actual_segments:
+        evaluated_actual, _ = self.profile_plot._actual_render_layers()
+        if self.profile_plot._profile_actual_measurement_geometry(profile) and not evaluated_actual:
+            self.profile_summary.setText(
+                self.profile_summary.text()
+                + " · "
+                + tr("No compatible Actual wall section")
+            )
+        elif not profile.actual_segments:
             self.profile_summary.setText(
                 self.profile_summary.text()
                 + " · "
@@ -1357,8 +1725,10 @@ class WallConformanceTab(QWidget):
             self._select_profile(0)
 
     def _update_profile_legend(self) -> None:
-        design, actual = self.profile_plot._geometry()
-        if self.profile_plot.mode == "empty" or not design and not actual:
+        design, _ = self.profile_plot._geometry()
+        actual, _ = self.profile_plot._actual_render_layers()
+        context = self.profile_plot._measurement_context_geometry()
+        if self.profile_plot.mode == "empty" or not design and not actual and not context:
             self.profile_legend.clear()
             self.profile_legend.hide()
             return
@@ -1380,13 +1750,19 @@ class WallConformanceTab(QWidget):
                     f"{swatch(role)} {tr(role.title())}" for role in design_roles
                 )
             )
-        if actual:
-            actual_label = (
-                tr("All profiles")
-                if self.profile_plot.mode == "overview"
-                else tr("Selected profile")
-            )
-            parts.append(f"<b>{tr('ACTUAL')}</b> {swatch('actual')} {actual_label}")
+        if actual or context:
+            if self.profile_plot.mode == "overview":
+                parts.append(f"<b>{tr('ACTUAL')}</b> {swatch('actual')} {tr('All profiles')}")
+            elif not actual:
+                parts.append(f"<b>{tr('ACTUAL')}</b> {tr('Context')}")
+            else:
+                context_swatch = (
+                    f'<span style="color:{colors["actual"].name()}; opacity:0.5">╌</span>'
+                )
+                parts.append(
+                    f"<b>{tr('ACTUAL')}</b> {swatch('actual')} {tr('Evaluated')}"
+                    f"  {context_swatch} {tr('Context')}"
+                )
         self.profile_legend.setText(" · ".join(parts))
         self.profile_legend.setVisible(bool(parts))
 
@@ -1456,6 +1832,12 @@ class WallConformanceTab(QWidget):
         range_label = QLabel(range_text)
         range_label.setObjectName("MutedText")
         range_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        for widget in (label, value_label, range_label):
+            widget.setWordWrap(False)
+            widget.setMinimumWidth(0)
+            widget.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+            )
         if tooltip:
             for widget in (label, value_label, range_label):
                 widget.setToolTip(tooltip)
@@ -1463,6 +1845,60 @@ class WallConformanceTab(QWidget):
         self.details_rows.addWidget(value_label, row, 1)
         self.details_rows.addWidget(range_label, row, 2)
         return row + 1
+
+    @staticmethod
+    def _measurement_value(value, unit: str, *, signed: bool = False) -> str:
+        if value is None:
+            return tr("N/A")
+        prefix = "+" if signed and value >= 0 else ""
+        return f"{prefix}{value:.1f}{unit}"
+
+    @classmethod
+    def _summary_range_text(cls, aggregate, unit: str) -> str:
+        if aggregate is None or aggregate.minimum is None or aggregate.maximum is None:
+            return tr("Insufficient data")
+        return (
+            tr("Range %1 … %2")
+            .replace("%1", cls._measurement_value(aggregate.minimum, unit, signed=True))
+            .replace("%2", cls._measurement_value(aggregate.maximum, unit, signed=True))
+        )
+
+    def _add_measurement_summary(self, row: int) -> int:
+        summary = getattr(self.result, "measurement_summary", None)
+        if summary is None:
+            return row
+        row = self._add_detail_section(row, tr("Measurements"))
+        for label, aggregate, unit in (
+            (tr("Overall angle"), getattr(summary, "angle_deviation_deg", None), "°"),
+            (tr("Upper berm"), getattr(summary, "upper_berm_width_deviation_m", None), " m"),
+            (tr("Lower toe"), getattr(summary, "toe_signed_offset_u_m", None), " m"),
+        ):
+            median = None if aggregate is None else aggregate.median
+            mean = None if aggregate is None else aggregate.mean
+            tooltip = (
+                (
+                    tr("Mean %1 · %2")
+                    .replace("%1", self._measurement_value(mean, unit, signed=True))
+                    .replace("%2", self._summary_range_text(aggregate, unit))
+                )
+                if mean is not None and aggregate.minimum is not None
+                else tr("Insufficient data")
+            )
+            row = self._add_detail_metric(
+                row,
+                label,
+                tr("Q2 %1").replace(
+                    "%1", self._measurement_value(median, unit, signed=True)
+                ),
+                (
+                    tr("%1/%2").replace("%1", str(aggregate.valid_count)).replace(
+                        "%2", str(aggregate.total_count)
+                    )
+                    if median is not None else ""
+                ),
+                tooltip,
+            )
+        return row
 
     def _refresh_detail_schedule(self) -> None:
         if self._detail_stretch_row is not None:
@@ -1494,13 +1930,18 @@ class WallConformanceTab(QWidget):
         self.details_metadata.setToolTip(variant.signature)
         self._clear_detail_rows()
         row = 0
+        row = self._add_measurement_summary(row)
         if context is not None:
             row = self._add_detail_section(row, tr("Upstream %1").replace("%1", tr(context.role.title())))
             row = self._add_detail_metric(
                 row,
                 tr("W"),
                 f"W {context.width_median:.1f} m",
-                f"{context.width_range[0]:.1f}–{context.width_range[1]:.1f} m",
+                tooltip=(
+                    tr("Range %1–%2 m")
+                    .replace("%1", f"{context.width_range[0]:.1f}")
+                    .replace("%2", f"{context.width_range[1]:.1f}")
+                ),
             )
         counters = {}
         for element in variant.elements:
@@ -1511,8 +1952,8 @@ class WallConformanceTab(QWidget):
                 row = self._add_detail_metric(
                     row,
                     tr("H / A"),
-                    f"H {element.height_median:.1f} m · A {element.angle_median:.1f}°",
-                    (
+                    f"{element.height_median:.1f} m · {element.angle_median:.1f}°",
+                    tooltip=(
                         f"H {element.height_range[0]:.1f}–{element.height_range[1]:.1f} m"
                         f" · A {element.angle_range[0]:.1f}–{element.angle_range[1]:.1f}°"
                     ),
@@ -1521,15 +1962,19 @@ class WallConformanceTab(QWidget):
                 row = self._add_detail_metric(
                     row, tr("W"),
                     f"W {element.width_median:.1f} m",
-                    f"{element.width_range[0]:.1f}–{element.width_range[1]:.1f} m",
+                    tooltip=(
+                        tr("Range %1–%2 m")
+                        .replace("%1", f"{element.width_range[0]:.1f}")
+                        .replace("%2", f"{element.width_range[1]:.1f}")
+                    ),
                 )
         if variant.elements:
             terminal = variant.elements[-1]
             row = self._add_detail_section(row, tr("Lower toe"))
             row = self._add_detail_metric(
                 row,
-                tr("U / dZ"),
-                f"U {terminal.end_u:.1f} m · dZ {terminal.end_dz:.1f} m",
+                tr("U / dZ (m)"),
+                f"{terminal.end_u:.1f} / {terminal.end_dz:.1f}",
             )
         self._detail_stretch_row = row
         self._refresh_detail_schedule()
@@ -1555,36 +2000,97 @@ class WallConformanceTab(QWidget):
         self.details_metadata.setToolTip(signature)
         self._clear_detail_rows()
         row = 0
+        measurement_index = profile_number - 1
+        measurement = (
+            self.result.measurements[measurement_index]
+            if self.result is not None
+            and 0 <= measurement_index < len(self.result.measurements)
+            else None
+        )
         row = self._add_detail_section(row, tr("Design"))
-        if context is not None:
-            row = self._add_detail_section(
-                row, tr("Upstream %1").replace("%1", tr(context.role.title()))
+        if measurement is None:
+            # Retain the Design-only diagnostic schedule for incomplete or
+            # legacy results that do not expose a measurement record.
+            if context is not None:
+                row = self._add_detail_section(
+                    row, tr("Upstream %1").replace("%1", tr(context.role.title()))
+                )
+                row = self._add_detail_metric(
+                    row, tr("W"), f"W {context.horizontal_width:.1f} m"
+                )
+            counters = {}
+            elements = getattr(design_section, "elements", ())
+            for element in elements:
+                counters[element.role] = counters.get(element.role, 0) + 1
+                row = self._add_detail_section(
+                    row, f"{tr(element.role.title())} {counters[element.role]}"
+                )
+                if element.role == "face" and element.angle_degrees is not None:
+                    row = self._add_detail_metric(
+                        row,
+                        tr("H / A"),
+                        f"H {element.vertical_height:.1f} m · A {element.angle_degrees:.1f}°",
+                    )
+                else:
+                    row = self._add_detail_metric(
+                        row, tr("W"), f"W {element.horizontal_width:.1f} m"
+                    )
+            if elements:
+                terminal = elements[-1].end
+                row = self._add_detail_section(row, tr("Lower toe"))
+                row = self._add_detail_metric(
+                    row, tr("U / Z"), f"U {terminal.u:.1f} m · Z {terminal.z:.1f} m"
+                )
+        else:
+            design_toe = measurement.design_landmarks.lower_toe.point
+            actual_toe = measurement.actual_landmarks.lower_toe.point
+            berm_boundary = (
+                measurement.actual_landmarks.upper_berm_start.detection.reason_code
+                == "boundary_truncated"
             )
             row = self._add_detail_metric(
-                row, tr("W"), f"W {context.horizontal_width:.1f} m"
+                row, tr("Overall angle"),
+                self._measurement_value(measurement.design_overall_angle_deg, "°"),
             )
-        counters = {}
-        elements = getattr(design_section, "elements", ())
-        for element in elements:
-            counters[element.role] = counters.get(element.role, 0) + 1
-            row = self._add_detail_section(
-                row, f"{tr(element.role.title())} {counters[element.role]}"
-            )
-            if element.role == "face" and element.angle_degrees is not None:
-                row = self._add_detail_metric(
-                    row,
-                    tr("H / A"),
-                    f"H {element.vertical_height:.1f} m · A {element.angle_degrees:.1f}°",
-                )
-            else:
-                row = self._add_detail_metric(
-                    row, tr("W"), f"W {element.horizontal_width:.1f} m"
-                )
-        if elements:
-            terminal = elements[-1].end
-            row = self._add_detail_section(row, tr("Lower toe"))
             row = self._add_detail_metric(
-                row, tr("U / Z"), f"U {terminal.u:.1f} m · Z {terminal.z:.1f} m"
+                row, tr("Upper berm"),
+                self._measurement_value(measurement.design_upper_berm_width_m, " m"),
+            )
+            row = self._add_detail_metric(
+                row, tr("Toe U"),
+                self._measurement_value(getattr(design_toe, "u", None), " m"),
+            )
+            row = self._add_detail_section(row, tr("Actual"))
+            row = self._add_detail_metric(
+                row, tr("Overall angle"),
+                self._measurement_value(measurement.actual_overall_angle_deg, "°"),
+            )
+            row = self._add_detail_metric(
+                row, tr("Upper berm"),
+                (tr("N/A · Pit boundary") if berm_boundary else
+                 self._measurement_value(measurement.actual_upper_berm_width_m, " m")),
+            )
+            row = self._add_detail_metric(
+                row, tr("Toe U"),
+                self._measurement_value(getattr(actual_toe, "u", None), " m"),
+            )
+            row = self._add_detail_section(row, tr("Deviation"))
+            row = self._add_detail_metric(
+                row, tr("Angle"),
+                self._measurement_value(measurement.angle_deviation_deg, "°", signed=True),
+            )
+            row = self._add_detail_metric(
+                row, tr("Berm"),
+                (tr("N/A · Pit boundary") if berm_boundary else
+                 self._measurement_value(
+                     measurement.upper_berm_width_deviation_m, " m", signed=True
+                 )),
+            )
+            row = self._add_detail_metric(
+                row, tr("Toe"),
+                self._measurement_value(
+                    measurement.toe_signed_offset_u_m, " m", signed=True
+                ),
             )
         self._detail_stretch_row = row
         self._refresh_detail_schedule()

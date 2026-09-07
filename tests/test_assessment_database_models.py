@@ -17,7 +17,7 @@ EXPECTED = {
     "project_lines_datasets", "blast_events",
     "blast_event_geometry_revisions", "blast_event_technical_cards",
     "blast_event_technical_card_revisions", "blast_event_drillhole_datasets",
-    "assessment_areas", "assessment_area_geometry_revisions", "assessment_event_links",
+    "assessment_areas", "assessment_area_geometry_revisions", "assessment_area_wall_alignments", "assessment_event_links",
     "assessment_area_evaluations", "assessment_area_evaluation_revisions",
     "assessment_entity_attachments",
 }
@@ -154,6 +154,12 @@ def test_geometry_elevation_json_and_exact_revision_links():
     assert fk("blast_event_technical_card_revisions", "blast_event_geometry_revision_id").target_fullname == "blast_event_geometry_revisions.id"
     assert fk("assessment_area_evaluation_revisions", "assessment_area_geometry_revision_id").target_fullname == "assessment_area_geometry_revisions.id"
     links = table("assessment_event_links")
+    wall_alignment = table("assessment_area_wall_alignments")
+    assert tuple(wall_alignment.primary_key.columns.keys()) == (
+        "assessment_area_geometry_revision_id",
+    )
+    assert fk(wall_alignment.name, "assessment_area_geometry_revision_id").target_fullname == "assessment_area_geometry_revisions.id"
+    assert "jsonb_typeof(points_json) = 'array'" in checks(wall_alignment.name)
     assert "blast_event_id" not in links.c
     assert fk("assessment_event_links", "assessment_area_geometry_revision_id").target_fullname == "assessment_area_geometry_revisions.id"
     assert fk("assessment_event_links", "blast_event_geometry_revision_id").target_fullname == "blast_event_geometry_revisions.id"
@@ -198,6 +204,7 @@ def test_all_foreign_key_delete_actions():
         ("blast_event_drillhole_datasets", "imported_by_user_id"): "SET NULL",
         ("assessment_areas", "domain_id"): "RESTRICT",
         ("assessment_area_geometry_revisions", "assessment_area_id"): "CASCADE",
+        ("assessment_area_wall_alignments", "assessment_area_geometry_revision_id"): "CASCADE",
         ("assessment_event_links", "assessment_area_geometry_revision_id"): "CASCADE",
         ("assessment_event_links", "blast_event_geometry_revision_id"): "RESTRICT",
         ("assessment_area_evaluations", "assessment_area_id"): "CASCADE",
@@ -222,10 +229,11 @@ def test_project_surface_semantics_metadata_is_nullable_jsonb():
     assert column.nullable is True
 
 
-def test_release_1_baseline_is_frozen_and_semantics_migration_is_appended():
+def test_release_1_baseline_is_frozen_and_later_migrations_are_appended():
     versions = sorted(Path("alembic/versions").glob("*.py"))
     assert [path.name for path in versions] == [
         "0001_slopeforge_1.py", "0002_project_surface_semantics.py",
+        "0003_assessment_area_wall_alignments.py",
     ]
     baseline = versions[0].read_text()
     assert 'revision = "1"' in baseline
@@ -240,3 +248,7 @@ def test_release_1_baseline_is_frozen_and_semantics_migration_is_appended():
     assert 'revision = "2"' in semantics
     assert 'down_revision = "1"' in semantics
     assert "semantic_mapping_json" in semantics
+    alignments = versions[2].read_text()
+    assert 'revision = "3"' in alignments
+    assert 'down_revision = "2"' in alignments
+    assert "assessment_area_wall_alignments" in alignments

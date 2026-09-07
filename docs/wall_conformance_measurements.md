@@ -1,0 +1,254 @@
+# Wall Conformance engineering measurements
+
+These are derived measurements, not Assessment scores or persisted records.
+The entry points in `domain/wall_conformance/measurements.py` are
+`extract_design_landmarks`, `detect_actual_landmarks`, `measure_profile`,
+`measure_profiles`, and `aggregate_measurements`. They consume already generated
+`TransverseProfile` objects. The existing application service returns
+`measurements` and `measurement_summary` on `WallConformanceDiagnosticResult`.
+
+Placement, profile spacing, Design-derived azimuth/+U, Assessment clipping,
+local-run selection, variants, Actual intersections, and skipped-profile rules
+are upstream inputs. Measurement failure never requests another placement.
+The existing optional `ProfileMeasurementContext` supplies bounded support from
+the accepted local run. An explicitly empty context remains authoritative;
+profiles without that field use their existing section geometry.
+
+## Physical landmark definitions
+
+* Upper crest: the Berm/Road-to-first-assessed-Face transition. This can be
+  supported even when the upper platform's start cannot be measured.
+* Upper berm start: the upstream end of that same connected Berm/Road, with a
+  preceding Face ending there in the supplied local Design geometry. A
+  presentation `upstream_context` endpoint alone is insufficient. Neither a
+  dataset end nor an Assessment clip edge proves a physical boundary.
+* Lower toe: the end of the last assessed Face, contiguous with the following
+  semantic Berm/Road. A clipped terminal or a bare terminal marker without
+  downstream geometry is unsupported; no horizontal platform is invented.
+
+The existing context builder can provide physical Face endpoints outside the
+Assessment display mask. Measurements do not reconstruct topology or select a
+different wall run. Internal Faces/Berms are never additional KPI rows.
+
+## Actual detection
+
+Design supplies transition identity, bounded local context, and a soft
+candidate preference. Actual semantic labels are ignored. Every transition
+vertex in the connected Actual measurement context is eligible; normally the
+output point is an Actual vertex, not a projection of Design or an
+extrapolated intersection of fitted lines.
+
+At a Design-confirmed outer boundary with no upstream Berm/Road context, the
+upper berm start is explicitly `boundary_truncated`. The Design upper-crest
+elevation defines a local vertical search band equal to one assessed Design
+Face height above and below that elevation. Within that band, a connected
+Actual breakpoint is accepted only when its downstream local fit is a
+supported Face; the upstream topography may descend, be flat, or rise to a
+local crest. Its slope sign never defines crest existence. The selected point
+is always an Actual point, not an intersection with the Design elevation. A
+genuine measurement boundary which begins directly on the Face remains a
+secondary one-sided case. The historical `boundary_face_run_onset` and
+`boundary_design_elevation_fallback` provenance values remain readable, but
+neither is the primary outer-boundary path. `ProfileLandmark.source` records
+how a crest was obtained.
+
+The detector normalizes segment direction and removes exact duplicate geometry
+and numerical zero-length segments. Endpoint connectivity separates gaps.
+Collinear tessellation vertices are not alternate breakpoints. Both sides of a
+candidate are clipped to their local fit windows before fitting.
+
+Each side uses orthogonal least squares with exact length-weighted segment
+moments. Subdividing a straight segment does not change its fit weight. Tiny
+connected fragments contribute by physical length, rather than by triangle
+count; isolated tiny components cannot establish support. Hard acceptance uses
+connected support, no bridged gap, acceptable residuals, and an Actual physical
+transition type: Face-to-platform for upper berm start/lower toe, or
+platform-to-Face for upper crest. A Face materially descends in +U, a platform
+is materially flatter, and the fitted runs must have a meaningful orientation
+change. Rising near-vertical geometry and wrong-shape kinks remain
+incompatible.
+
+For a lower toe, the facets touching a candidate contribute a continuous onset
+preference relative to the stable left/right fitted runs. They do not impose a
+second absolute Face/platform validity gate. This keeps the selected point at
+the onset of the downstream floor without allowing one short transitional TIN
+facet to create, remove, or move the physical landmark when its angle crosses a
+class threshold.
+
+Design orientation difference and Design distance are soft, deterministic
+preferences among physically valid candidates. They never veto an otherwise
+valid displaced crest, berm, or toe. In particular, the nominal 5 m Design
+locality does not act as a second hard candidate gate after the bounded context
+has admitted connected Actual geometry. Candidate selection is lexicographic:
+transition-onset coherence (for a toe), fit quality, then Design-orientation
+preference, then Design distance. Similar separated candidates with
+indistinguishable physical evidence remain ambiguous.
+Only residual quality can produce low confidence after a candidate is
+physically valid. Raw candidate points remain inspectable.
+
+The upper transitions are also evaluated as a coherent Face-to-platform-to-Face
+pair when both are available in the same connected Actual component. The pair
+requires correct +U ordering, a continuous sufficiently wide platform, and an
+acceptable platform fit. A lone crest can still be detected at a genuine outer
+boundary; a berm start is never invented there.
+
+The upper berm additionally requires connected Actual coverage between its
+detected boundaries. Invalid endpoint ordering also prevents a paired value.
+Angle and Toe remain independently usable when only Berm fails.
+
+## Default configuration and rejection rules
+
+`WallMeasurementTolerances` is accepted by all measurement entry points.
+Settings must be finite and positive; reliable thresholds cannot exceed the
+rejection thresholds, and the expected-change fraction cannot exceed one.
+
+| Setting | Default | Meaning |
+| --- | ---: | --- |
+| Design endpoint connection | 0.0001 m | Semantic transition continuity |
+| Actual endpoint connection | 0.15 m | Maximum tolerated endpoint separation |
+| Minimum isolated component length | 0.05 m | Ignore isolated tiny geometry |
+| Design locality half-window | 5 m in U | Core expanded by a full fit window before candidate evaluation |
+| Side-fit window | 2.5 m in U per side | Exact clipping before fitting |
+| Minimum side support | 0.60 m | Extent along each fitted line |
+| Reliable / maximum fit RMS | 0.20 / 0.45 m | Low confidence / hard rejection bounds |
+| Actual Face descent | 25 degrees | Minimum downward Face-like side angle in +U |
+| Actual platform angle | 20 degrees | Maximum absolute platform/floor angle |
+| Minimum fitted-run change | 7 degrees | Required meaningful change between adjacent stable runs |
+| Transition onset fraction | 0.30 | Continuous preference for the first downstream change within a toe transition zone |
+| Minimum upper platform width | 1.0 m | Coherent upper-pair evidence |
+| Design distance preference | 3 m | Soft candidate ranking scale, never a rejection gate |
+| Design orientation preference | 28 degrees | Soft candidate ranking scale, never a rejection gate |
+| Ambiguity physical-fit margin / separation | 0.01 m / 0.30 m | Similar competing physical candidates |
+| Numerical geometry / collinearity tolerance | 1e-9 m / 1e-5 degrees | Zero geometry and straight continuations |
+
+The candidate envelope defaults to 7.65 m: the 5 m Design locality plus one
+2.5 m fit window and 0.15 m connection tolerance. The context support radius is
+10.30 m because it adds another complete fit window and connection tolerance.
+This bounds Actual detector input in U without clipping side support at the
+candidate edge; the Design elevation envelope is retained as derived
+presentation information and cannot remove a physical Actual floor.
+Defaults are engineering detection settings, not calibrated scoring thresholds.
+
+Stable reasons include `design_landmark_unsupported`, `no_actual_coverage`,
+`insufficient_left_support`, `insufficient_right_support`, `data_gap`,
+`incompatible_geometry`, `ambiguous_breakpoint`, `unstable_breakpoint`, and
+`incompatible_landmark_order`. States are `detected`, `low_confidence`, and
+`not_detected`, accompanied by explanatory messages.
+
+## Read-only landmark diagnostics
+
+`diagnose_profile_landmarks` and `diagnose_profile_landmark_set` return the
+same final statuses as the detector alongside every locally considered Actual
+breakpoint. Each candidate records expected/Actual U/Z, U/Z deltas, spatial
+offset, both supports, fitted and expected orientations, orientation errors,
+residuals, observed local gap, physical topology, hard physical gate, and the
+lexicographic selection rank. The trace is derived after placement and does
+not alter placement or the measurements.
+
+`python -m tools.diagnose_wall_measurement_test_area` is a read-only report for
+the existing clean `assembled()` measurement-context fixture. It prints every
+generated profile, final-reason and rejected-candidate histograms, distributions
+for rejected candidates, preprocessing-stage evidence, and available
+representative profiles. The matching test verifies that this fixture's five
+profiles have continuous Actual input and all three landmarks detected. If a
+requested representative failure does not occur in that fixture, its report
+entry is null rather than synthesizing a diagnosis.
+
+## Results and aggregation
+
+`WallProfileMeasurements` stores chainage; Design/Actual landmark groups with
+U/Z/X/Y coordinates and detection status; Design/Actual overall angles and upper
+berm widths; paired angle shortfall, berm deficit, signed toe offset and absolute
+toe deviation; and independent `angle_status`, `berm_status`, `toe_status`.
+
+Overall angle is `degrees(atan2(abs(toe.z - crest.z), abs(toe.u - crest.u)))`.
+Upper berm width is `abs(crest.u - berm_start.u)`, not surface length.
+Shortfall/deficit is `max(design - actual, 0)` within each profile. Signed toe
+offset is `actual_toe.u - design_toe.u`; its absolute value is the toe KPI.
+Supported Design values remain available without Actual. Unreliable paired
+values are `None`.
+
+`WallMeasurementSummary` has three `KpiAggregate` fields: `angle_shortfall_deg`,
+`upper_berm_deficit_m`, and `toe_deviation_m`. Each reports `valid_count`,
+`total_count`, `median`, `mean`, `minimum`, and `maximum`; `primary_value` is the
+median. Only reliable paired deviations enter that KPI's aggregate. Empty
+aggregates have zero valid count and `None` statistics. No subtraction of
+independently aggregated Design/Actual values occurs.
+
+The existing Assessment criteria (`bench_angle`, `berm_width`, `toe_position`)
+and DAI/FCI calculations remain untouched. This phase does not fill them.
+
+## Finite local validation, 2026-09-05
+
+Command: `python -m tools.validate_wall_measurement_context`, using the existing
+saved connection, Assessment `AA-92E59B43`, and explicit development alignment.
+The current run generated 52 profiles. All 52 had empty Actual evaluation and
+measurement-context geometry after the existing context limits. Each KPI had
+0/52 valid profiles, with `not_detected / no_actual_coverage` and no statistics.
+This current observation supersedes the older unbounded-context observations
+in `wall_conformance_measurement_context.md`.
+
+| Chainage m | Design berm start U/Z | Design crest U/Z | Design toe U/Z | Design overall angle | Design upper width m |
+| ---: | --- | --- | --- | ---: | ---: |
+| 0.000 | 44.113 / 640.000 | 47.113 / 640.000 | 53.174 / 624.523 | 68.614° | 3.000 |
+| 77.553 | 45.393 / 644.736 | 55.396 / 644.700 | 72.447 / 615.412 | 59.793° | 10.003 |
+| 152.123 | 57.627 / 638.678 | 67.625 / 638.616 | 84.816 / 607.293 | 61.241° | 9.998 |
+
+At each example, all three Design landmarks are detected. All Actual U/Z,
+Actual angles/widths, angle shortfall, berm deficit, and signed/absolute toe
+offsets are `None`, with the explicit coverage status above. Full-precision
+examples are saved in the local `build/validation/wall_measurements.json` report.
+
+Successful Actual detection is demonstrated by deterministic profile and
+generated-surface tests, not by this real dataset. Positive real-survey
+validation remains outstanding until suitable local coverage is available.
+No profile placement or tolerance was changed to manufacture a real result.
+
+## Targeted runtime validation, 2026-09-05
+
+The read-only `python -m tools.diagnose_area1_wall_landmarks` reproduction of
+Assessment Area `AA-9FA43299` (`area1`, `Zazerkaliye / South`) resolved active
+Design R1 (310 triangles), Actual R2 (1,366 triangles), the persisted 11-vertex
+Wall Alignment (111.015 m), and 3 m spacing. It generated 37 accepted profiles.
+After the physical-topology change, upper berm start, upper crest, and lower
+toe were each detected on all 37 profiles; every profile had all three
+landmarks. The generated JSON contains per-profile raw/context/display counts,
+candidate ranks and hard gates for subsequent inspection.
+
+## Limits
+
+This is a conservative local piecewise-linear detector. Rounded transitions,
+overhangs, exactly vertical or branching sections, very short platforms, large
+departures from Design, or insufficient survey support can be rejected. Output
+coordinates follow the Actual mesh vertices; no sub-mesh precision is claimed.
+Endpoint angles need supported crest/toe landmarks, rather than complete
+coverage of every internal bench. The Berm width requires connected coverage.
+
+## Verification
+
+Python 3.14, Qt offscreen, 2026-09-05:
+
+* All Wall Conformance domain tests: **308 passed**, including the measurement,
+  measurement-context, generation, spacing and reversal regressions.
+* Final full suite: **1413 passed, 1 skipped, 7 failed** in 76.97 seconds.
+* Architecture audit: completed; no domain framework imports or internal cycles.
+* Compileall over app/application/domain/infrastructure/database/repositories/ui:
+  passed. `git diff --check`: passed; new files also checked for whitespace.
+
+The seven failures are outside these measurement edits and were not fixed:
+
+| Test area | Failure |
+| --- | --- |
+| Assessment write contracts | Read-only `load_wall_alignment` is included in a test requiring `expected_version` on every method |
+| Frozen geometry metadata | Expected migration list omits existing revision 3 |
+| Block overview | Source-string assertion no longer finds `overview_stack.addWidget(self.general_info)` |
+| Localization | 35 existing UI strings lack finished Russian translations |
+| Wall Conformance installer, two tests | Fake Assessment page lacks `read_only` |
+| Wall Conformance profile legend | Selecting a profile changes the scene bounding rectangle |
+
+Full output is in local `build/validation/wall_measurements_full_suite.txt`.
+The previously modified placement, models, semantic reducer, intersections,
+measurement context, service, ORM, alignment writes and migration files retain
+their starting hashes. This task changed only `measurements.py`, its focused
+test file, and this document, plus local validation output. Nothing was staged,
+committed, pushed or merged.

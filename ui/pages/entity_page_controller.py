@@ -134,3 +134,12 @@ class EntityPageController:
 
     def save_assessment_area_geometry(self, **values):
         return self.editing.save_assessment_area_geometry(**values)
+
+    def load_wall_alignment(self, area, geometry_revision=None):
+        return self.editing.load_wall_alignment(area, geometry_revision)
+
+    def save_wall_alignment(self, area, alignment):
+        return self.editing.save_wall_alignment(area, alignment)
+
+    def clear_wall_alignment(self, area):
+        return self.editing.clear_wall_alignment(area)

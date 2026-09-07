@@ -7,6 +7,10 @@ from ui.widgets.design_system import set_status_role
 
 def _sync_initial_availability(tab) -> None:
     """Prevent an obviously unavailable physical-file calculation upfront."""
+    refresh = getattr(tab, "_refresh_calculation_availability", None)
+    if refresh is not None:
+        refresh()
+        return
     try:
         design, actual = tab.service.current_datasets(tab.site_id)
     except Exception as exc:
@@ -47,6 +51,10 @@ def install_wall_conformance_tab(assessment_page):
         assessment_page.controller.site_id,
         revision.final_geometry_frozen,
         assessment_page,
+        area=assessment_page.area,
+        geometry_revision=revision,
+        controller=assessment_page.controller,
+        read_only=assessment_page.read_only,
     )
     assessment_index = assessment_page.tabs.indexOf(assessment_page.assessment_tab)
     insert_index = (

@@ -11,6 +11,7 @@ from application.services.assessment_areas import AssessmentAreaService
 from application.services.blast_events import BlastEventService
 from domain.assessment.evaluation import AssessmentAreaEvaluationService
 from domain.blasting.technical_card import TechnicalCardService
+from domain.wall_conformance import WallAlignment
 
 
 @dataclass(frozen=True)
@@ -205,6 +206,41 @@ class AssessmentEditingSession:
                 for link, status in old_statuses:
                     link.status = status
             raise
+
+    def load_wall_alignment(self, area, geometry_revision=None) -> WallAlignment | None:
+        """Read the alignment saved for this exact Assessment geometry revision."""
+        if area not in self.state.assessment_areas:
+            raise ValueError("Assessment Area not found in this Domain")
+        revision = geometry_revision or area.active_geometry_revision()
+        if revision not in area.geometry_revisions:
+            raise ValueError("Assessment geometry revision does not belong to this Assessment Area")
+        return self._writes.load_wall_alignment(self.domain_id, area.id, revision.id)
+
+    def save_wall_alignment(self, area, alignment: WallAlignment) -> None:
+        """Replace the active revision's manual stationing polyline transactionally."""
+        self._require_edit()
+        if area not in self.state.assessment_areas:
+            raise ValueError("Assessment Area not found in this Domain")
+        if area.is_archived:
+            raise PermissionError("Archived Assessment Areas are read-only")
+        revision = area.active_geometry_revision()
+        result = self._writes.save_wall_alignment(
+            self.domain_id, self.expected_version, area.id, revision.id, alignment
+        )
+        self.expected_version = result.new_version
+
+    def clear_wall_alignment(self, area) -> None:
+        """Delete only the active revision's manual stationing polyline."""
+        self._require_edit()
+        if area not in self.state.assessment_areas:
+            raise ValueError("Assessment Area not found in this Domain")
+        if area.is_archived:
+            raise PermissionError("Archived Assessment Areas are read-only")
+        revision = area.active_geometry_revision()
+        result = self._writes.clear_wall_alignment(
+            self.domain_id, self.expected_version, area.id, revision.id
+        )
+        self.expected_version = result.new_version
 
     def technical_card_draft(self, event):
         return self.technical_cards.edit_or_create(event)

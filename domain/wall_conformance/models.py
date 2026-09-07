@@ -282,6 +282,24 @@ class DesignVariant:
 
 
 @dataclass(frozen=True)
+class ProfileMeasurementContext:
+    """Derived support on an already placed plane; never an evaluation mask.
+
+    Design elements retain the physical endpoints of the assessed Faces only.
+    Segment geometry is bounded by the supported landmark windows' U envelope.
+    Actual geometry includes a full side-fit support margin and is not clipped
+    to the local Design elevation envelope.
+    An empty context is authoritative (it must not fall back to display data).
+    """
+
+    design_section: DesignSection
+    design_segments: tuple[SectionSegment, ...]
+    actual_segments: tuple[SectionSegment, ...]
+    u_intervals: tuple[tuple[float, float], ...]
+    design_z_interval: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
 class TransverseProfile:
     alignment: WallAlignmentSample
     design_segments: tuple[SectionSegment, ...]
@@ -289,6 +307,7 @@ class TransverseProfile:
     design_section: DesignSection | None = None
     assessment_u_interval: tuple[float, float] | None = None
     external_toe: SectionPoint | None = None
+    measurement_context: ProfileMeasurementContext | None = None
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,8 @@ from infrastructure.db.domain_version import guard_domain_versions
 from application.services.assessment_event_links import AssessmentEventLinkService
 from repositories.assessment_state_repository import _domain_graph_queries, _state_from_domain
 from repositories.audit_log_repository import AuditLogRepository
+from domain.geometry.types import PlanPoint
+from domain.wall_conformance import WallAlignment
 
 
 class SqlAlchemyAssessmentWrites:
@@ -38,6 +40,87 @@ class SqlAlchemyAssessmentWrites:
         if row is None:
             raise ValueError(f"Assessment entity {logical_id!r} is not persisted in Domain {domain_id}")
         return row
+
+    @staticmethod
+    def _area_geometry(session, domain_id, area_id, geometry_revision_id):
+        row = session.scalar(select(orm.AssessmentAreaGeometryRevision).join(
+            orm.AssessmentArea
+        ).where(
+            orm.AssessmentArea.domain_id == domain_id,
+            orm.AssessmentArea.logical_id == area_id,
+            orm.AssessmentAreaGeometryRevision.logical_id == geometry_revision_id,
+        ))
+        if row is None:
+            raise ValueError("Assessment Area geometry revision is not persisted in this Domain")
+        return row
+
+    @staticmethod
+    def _alignment_from_points(points, geometry_revision_id):
+        try:
+            if not isinstance(points, list):
+                raise ValueError("points payload is not an array")
+            alignment = WallAlignment(tuple(
+                PlanPoint(float(point["x"]), float(point["y"]))
+                for point in points
+                if isinstance(point, dict)
+            ))
+            if len(alignment.points) != len(points):
+                raise ValueError("each point must be an object")
+            return alignment
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "Persisted Wall Alignment for Assessment Area geometry revision "
+                f"{geometry_revision_id!r} is invalid"
+            ) from exc
+
+    def load_wall_alignment(self, domain_id, area_id, geometry_revision_id):
+        with self._session_factory() as s:
+            geometry = self._area_geometry(s, domain_id, area_id, geometry_revision_id)
+            row = geometry.wall_alignment
+            if row is None:
+                return None
+            return self._alignment_from_points(row.points_json, geometry_revision_id)
+
+    def save_wall_alignment(self, domain_id, expected_version, area_id,
+                            geometry_revision_id, alignment):
+        if not isinstance(alignment, WallAlignment):
+            raise ValueError("Wall Alignment must be a valid WallAlignment")
+        with self._session_factory.begin() as s:
+            new_version = guard_domain_versions(s, {domain_id: expected_version})[domain_id]
+            geometry = self._area_geometry(s, domain_id, area_id, geometry_revision_id)
+            if geometry.assessment_area.is_archived:
+                raise PermissionError("Archived Assessment Areas are read-only")
+            if not geometry.is_active:
+                raise PermissionError("Historical Assessment geometry revisions are read-only")
+            points = [{"x": point.x, "y": point.y} for point in alignment.points]
+            row = geometry.wall_alignment
+            if row is None:
+                row = orm.AssessmentAreaWallAlignment(
+                    geometry_revision=geometry, points_json=points
+                )
+                s.add(row)
+            else:
+                row.points_json = points
+            self._audit(s, entity_type="assessment_area", entity_id=area_id,
+                        field_name="wall_alignment", new_value=geometry_revision_id,
+                        description="Wall Alignment saved")
+            return DomainWriteResult(new_version)
+
+    def clear_wall_alignment(self, domain_id, expected_version, area_id,
+                             geometry_revision_id):
+        with self._session_factory.begin() as s:
+            new_version = guard_domain_versions(s, {domain_id: expected_version})[domain_id]
+            geometry = self._area_geometry(s, domain_id, area_id, geometry_revision_id)
+            if geometry.assessment_area.is_archived:
+                raise PermissionError("Archived Assessment Areas are read-only")
+            if not geometry.is_active:
+                raise PermissionError("Historical Assessment geometry revisions are read-only")
+            if geometry.wall_alignment is not None:
+                s.delete(geometry.wall_alignment)
+                self._audit(s, entity_type="assessment_area", entity_id=area_id,
+                            field_name="wall_alignment", old_value=geometry_revision_id,
+                            description="Wall Alignment cleared")
+            return DomainWriteResult(new_version)
 
     def persist_area_archive(self, domain_id, expected_version, area):
         with self._session_factory.begin() as s:
@@ -280,16 +363,26 @@ class SqlAlchemyAssessmentWrites:
                 (orm.AssessmentAreaGeometryRevision.revision_number == revision.revision_number)))
             if duplicate is not None:
                 raise ValueError("Assessment Area geometry revision ID or number already exists")
+            previous_active = s.scalar(select(orm.AssessmentAreaGeometryRevision).where(
+                orm.AssessmentAreaGeometryRevision.assessment_area_id == row.id,
+                orm.AssessmentAreaGeometryRevision.is_active.is_(True),
+            ))
             s.query(orm.AssessmentAreaGeometryRevision).filter_by(
                 assessment_area_id=row.id, is_active=True).update({"is_active": False})
             s.flush()
-            s.add(orm.AssessmentAreaGeometryRevision(assessment_area=row,
+            persisted_revision = orm.AssessmentAreaGeometryRevision(assessment_area=row,
                 logical_id=revision.id, revision_number=revision.revision_number,
                 created_at=revision.created_at, boundary_json=revision.boundary.to_dict(),
                 final_geometry_json=revision.final_geometry_frozen.to_dict(),
                 min_elevation_m=revision.min_elevation, max_elevation_m=revision.max_elevation,
-                change_reason=revision.change_reason, is_active=True))
+                change_reason=revision.change_reason, is_active=True)
+            s.add(persisted_revision)
             s.flush()
+            if previous_active is not None and previous_active.wall_alignment is not None:
+                s.add(orm.AssessmentAreaWallAlignment(
+                    geometry_revision=persisted_revision,
+                    points_json=[dict(point) for point in previous_active.wall_alignment.points_json],
+                ))
             links = [link for link in area.event_links
                      if link.assessment_area_geometry_revision_id == revision.id]
             self._sync_links(s, row, revision.id, links)

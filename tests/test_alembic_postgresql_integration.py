@@ -114,9 +114,9 @@ def test_alembic_history_keeps_release_1_frozen_and_has_one_head() -> None:
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["2"]
-    assert [revision.revision for revision in script.walk_revisions()] == ["2", "1"]
-    assert script.get_current_head() == "2"
+    assert script.get_heads() == ["3"]
+    assert [revision.revision for revision in script.walk_revisions()] == ["3", "2", "1"]
+    assert script.get_current_head() == "3"
 
 
 def test_every_alembic_revision_fits_standard_version_column() -> None:
@@ -129,6 +129,28 @@ def test_every_alembic_revision_fits_standard_version_column() -> None:
         "Alembic stores revision identifiers in alembic_version.version_num VARCHAR(32): "
         + ", ".join(overlong)
     )
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_wall_alignment_migration_upgrades_and_downgrades_cleanly(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from alembic import command
+
+    url = os.environ["TEST_DATABASE_URL"]
+    config = _alembic_config(monkeypatch, tmp_path, url)
+    engine = create_engine(url)
+    try:
+        command.downgrade(config, "2")
+        assert "assessment_area_wall_alignments" not in inspect(engine).get_table_names()
+        command.upgrade(config, "3")
+        assert "assessment_area_wall_alignments" in inspect(engine).get_table_names()
+        command.downgrade(config, "2")
+        assert "assessment_area_wall_alignments" not in inspect(engine).get_table_names()
+        command.upgrade(config, "head")
+        assert "assessment_area_wall_alignments" in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.postgres
@@ -294,6 +316,7 @@ def test_release_1_baseline_upgrade_application_smoke_and_round_trip(
             "users", "sites", "domains", "blast_events",
             "project_lines_datasets", "project_surface_datasets",
             "blast_event_drillhole_datasets", "assessment_areas",
+            "assessment_area_wall_alignments",
         }
         assert "mines" not in inspect(engine).get_table_names()
         assert "blast_blocks" not in inspect(engine).get_table_names()

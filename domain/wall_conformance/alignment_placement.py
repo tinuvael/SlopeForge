@@ -11,7 +11,7 @@ is accepted only by section assembly, after every placement decision exists.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import ceil, fsum, hypot, isfinite, sqrt
 
 from domain.geometry.operations import (
@@ -22,6 +22,7 @@ from domain.geometry.operations import (
 from domain.geometry.surfaces import SurfaceVertex, TriangleSurface
 from domain.geometry.types import PlanPoint, PlanPolygon
 from domain.wall_conformance.invariants import profile_vertical_order_issue
+from domain.wall_conformance.measurement_context import build_measurement_context
 from domain.wall_conformance.models import (
     DesignSection,
     DesignSectionElement,
@@ -974,9 +975,11 @@ def _profile_from_placement(
     if not evaluated.elements:
         raise ValueError("Assessment Area clips away the Design wall section")
     actual_segments: tuple[SectionSegment, ...] = ()
+    raw_actual_segments: tuple[SectionSegment, ...] = ()
     if actual_surface is not None:
+        raw_actual_segments = intersect_surface_with_profile(actual_surface, alignment)
         actual_segments = clip_section_segments_to_u_interval(
-            intersect_surface_with_profile(actual_surface, alignment),
+            raw_actual_segments,
             *interval,
         )
         design_points = tuple(
@@ -1002,7 +1005,9 @@ def _profile_from_placement(
     issue = profile_vertical_order_issue(profile)
     if issue is not None:
         raise ValueError(issue)
-    return profile
+    return replace(profile, measurement_context=build_measurement_context(
+        profile, shifted, raw_actual_segments,
+    ))
 
 
 def build_alignment_profile_sections(

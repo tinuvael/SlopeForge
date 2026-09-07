@@ -9,8 +9,8 @@ from database.base import Base
 from database.settings import Settings
 
 
-CURRENT_HEAD = "2"
-KNOWN_OLDER = "0"
+CURRENT_HEAD = "3"
+KNOWN_OLDER = "2"
 PRE_1_0_HEAD = "0003_drillhole_datasets"
 
 
@@ -110,7 +110,7 @@ def test_startup_pre_1_0_revision_is_incompatible(monkeypatch):
 
 
 def test_startup_unknown_future_revision_requires_application_upgrade(monkeypatch):
-    arrange_startup(monkeypatch, revision="3")
+    arrange_startup(monkeypatch, revision="4")
     with pytest.raises(startup.StartupError) as caught:
         startup.initialize_database_runtime()
     assert caught.value.reason == "application_upgrade_required"

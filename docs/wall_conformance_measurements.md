@@ -1,6 +1,31 @@
 # Wall Conformance engineering measurements
 
-These are derived measurements, not Assessment scores or persisted records.
+## Additional geometry diagnostics
+
+Wall Conformance also derives diagnostic-only backbreak and face-conformity
+metrics from its accepted transverse profiles. They are not Assessment scoring
+inputs and never affect DAI, FCI, or any matrix criterion.
+
+- **Backbreak** is `max(0, U_design_crest - U_actual_crest)`. With `+U`
+  directed toward the wall/lower toe, only an Actual crest upstream of Design
+  is positive. Mean and maximum backbreak use reliable crest profiles only.
+- **Face residuals** compare only semantic Design `face` segments with the
+  compatible continuous Actual wall component at common elevations. The signed
+  Design-normal residual is `(U_design - U_actual) * sin(abs(face angle))`:
+  positive is overbreak and negative is underbreak.
+- **Mean overbreak** and **mean underbreak** are the non-negative means of
+  their respective signed residual supports. **Contour RMS** is
+  `sqrt(mean(residual²))` over all valid Face support.
+
+Both Design and Actual piecewise-linear breakpoints partition the common-Z
+intervals. Integrals are weighted by Design-face arc length at each uniformly
+spaced alignment station, so raw TIN vertex density and collinear subdivision
+do not change the engineering result. Berms, roads, topography, floors,
+disconnected fragments, and ambiguous Actual intersections are excluded.
+
+These are derived measurements, not Assessment scores. The Wall Conformance
+result itself is ephemeral; an Assessment revision receives a compatibility
+snapshot only after the user explicitly applies the current result.
 The entry points in `domain/wall_conformance/measurements.py` are
 `extract_design_landmarks`, `detect_actual_landmarks`, `measure_profile`,
 `measure_profiles`, and `aggregate_measurements`. They consume already generated

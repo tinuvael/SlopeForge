@@ -275,7 +275,7 @@ class FakeTabs:
 
 def _fake_tab_class(surface_service):
     class FakeWallConformanceTab:
-        def __init__(self, context, site_id, polygon, parent=None):
+        def __init__(self, context, site_id, polygon, parent=None, **_kwargs):
             self.context = context
             self.site_id = site_id
             self.polygon = polygon
@@ -302,6 +302,7 @@ def _fake_assessment_page():
         ),
         assessment_tab=assessment_tab,
         tabs=FakeTabs([overview, assessment, linked]),
+        read_only=False,
     )
     return page
 

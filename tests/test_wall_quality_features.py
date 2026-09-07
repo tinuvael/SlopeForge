@@ -151,6 +151,7 @@ def test_measurement_method_uses_only_canonical_codes():
         MeasuredWallGeometry(measurement_method="Лазерное сканирование")
 
 
-def test_measurement_method_combo_is_connected_to_dirty_path():
+def test_legacy_measurement_method_combo_is_not_part_of_active_assessment_ui():
     source = __import__("pathlib").Path("ui/editors/assessment_evaluation_editor.py").read_text()
-    assert "self.measurement_method.currentIndexChanged.connect(self._changed)" in source
+    assert "self.measurement_method.currentIndexChanged.connect(self._changed)" not in source
+    assert "Calculate from survey…" not in source

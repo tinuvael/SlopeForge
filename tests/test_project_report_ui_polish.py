@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 import pytest
 
 QtWidgets=pytest.importorskip("PySide6.QtWidgets",exc_type=ImportError)
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtWidgets import QApplication,QDialogButtonBox,QMessageBox,QTabWidget
 
 
@@ -89,35 +89,52 @@ def test_assessment_page_is_one_continuous_visible_workspace(monkeypatch):
     assert page.save_evaluation_button.isVisible()
     assert page.save_evaluation_button.text() == "Save"
     assert [action.text() for action in page.save_evaluation_button.menu().actions()] == ["Complete assessment"]
-    measured = page.evaluation_editor.measured_wall_widget
-    assert measured.isVisible() and inputs.isAncestorOf(measured)
-    assert all(control.isVisible() for control in page.evaluation_editor.measured_wall_controls.values())
-    assert all(control.width() == 120 for control in page.evaluation_editor.measured_wall_controls.values())
-    assert page.evaluation_editor.measurement_method.isVisible()
-    assert page.evaluation_editor.measurement_method.maximumWidth() == 220
-    assert measured.objectName() == "CriterionCard"
-    assert measured.layout().verticalSpacing() == 5
-    measured_layout = measured.layout()
-    for control in (*page.evaluation_editor.measured_wall_controls.values(), page.evaluation_editor.measurement_method):
-        row, column, row_span, column_span = measured_layout.getItemPosition(measured_layout.indexOf(control))
-        assert column == 1 and row_span == column_span == 1
-        assert measured_layout.itemAtPosition(row, column).alignment() & Qt.AlignmentFlag.AlignRight
     input_layout = inputs.layout()
     face_index = input_layout.indexOf(page.face_condition_input_card)
     geometry_index = input_layout.indexOf(page.geometry_input_card)
-    measured_index = input_layout.indexOf(measured)
-    assert face_index < geometry_index < measured_index
-    assert not hasattr(page, "face_condition_divider") and not hasattr(page, "measured_wall_divider")
+    assert face_index < geometry_index
+    assert not hasattr(page, "face_condition_divider")
     assert page.face_condition_input_card.layout().spacing() == 5
     assert page.geometry_input_card.layout().spacing() == 5
-    assert any(button.text() == "Calculate from survey…" for button in measured.findChildren(QtWidgets.QPushButton))
-    page.evaluation_editor.measured_wall_controls["mean_backbreak_m"].set_nullable_value(1.2)
-    page.evaluation_editor.measured_wall_controls["contour_rms_deviation_m"].set_nullable_value(.4)
-    page.evaluation_editor.measurement_method.setCurrentIndex(
-        page.evaluation_editor.measurement_method.findData("survey"))
+    assert page.evaluation_editor.wall_conformance_import_button.isVisible()
+    assert page.evaluation_editor.additional_geometry_widget.isVisible()
+    assert page.evaluation_editor.additional_geometry_widget.property("assessmentSection") == "additionalGeometryMetrics"
+    assert page.evaluation_editor.additional_geometry_values["mean_backbreak_m"].text() == "N/A"
+    metrics_layout = page.evaluation_editor.additional_geometry_widget.layout().itemAt(1).layout()
+    assert isinstance(metrics_layout, QtWidgets.QGridLayout)
+    assert metrics_layout.verticalSpacing() >= 5 and metrics_layout.contentsMargins().right() >= 7
+    assert page.evaluation_editor.additional_geometry_widget.layout().spacing() >= 7
+    metric_labels = page.evaluation_editor.additional_geometry_widget.findChildren(
+        QtWidgets.QLabel, "AssessmentMetricLabel",
+    )
+    assert len(metric_labels) == 5 and all(label.font().bold() for label in metric_labels)
+    assert all(
+        value.font().pointSize() == page.evaluation_editor.shortfall.font().pointSize()
+        and value.alignment() & Qt.AlignmentFlag.AlignRight
+        for value in page.evaluation_editor.additional_geometry_values.values()
+    )
+    assert not hasattr(page.evaluation_editor, "additional_geometry_source")
+    left_top = page.assessment_details_card.mapTo(page.assessment_tab, QPoint()).y()
+    right_top = page.assessment_basis_card.mapTo(page.assessment_tab, QPoint()).y()
+    assert left_top == right_top
+    assert inputs.layout().contentsMargins().top() == page.assessment_right.layout().contentsMargins().top()
+    assert not [
+        widget for widget in page.assessment_tab.findChildren(QtWidgets.QWidget)
+        if widget.property("assessmentSection") == "measuredWallGeometry"
+    ]
+    assert not [
+        button for button in page.assessment_tab.findChildren(QtWidgets.QPushButton)
+        if button.text() == "Calculate from survey…"
+    ]
+    page.evaluation_editor.draft.measured_wall_geometry.mean_backbreak_m = 1.2
+    page.evaluation_editor.draft.measured_wall_geometry.contour_rms_deviation_m = .4
+    page.evaluation_editor.draft.measured_wall_geometry.measurement_method = "survey"
     page.evaluation_editor.draft.measured_wall_geometry.design_surface_source = "design.csv"
     page.evaluation_editor.draft.measured_wall_geometry.survey_source = "survey.csv"
     page.evaluation_editor.draft.measured_wall_geometry.survey_point_count = 12
+    page.evaluation_editor._refresh_additional_geometry_metrics()
+    assert page.evaluation_editor.additional_geometry_values["mean_backbreak_m"].text() == "1.2 m"
+    assert page.evaluation_editor.additional_geometry_values["contour_rms_deviation_m"].text() == "0.4 m"
     measured_draft = page.evaluation_editor.collect().measured_wall_geometry
     assert (measured_draft.mean_backbreak_m, measured_draft.contour_rms_deviation_m) == (1.2, .4)
     assert (measured_draft.measurement_method, measured_draft.design_surface_source,

@@ -64,5 +64,8 @@ def install_wall_conformance_tab(assessment_page):
     )
     assessment_page.tabs.insertTab(insert_index, tab, tr("Wall conformance"))
     assessment_page.wall_conformance_tab = tab
+    configure_import = getattr(assessment_page, "configure_wall_conformance_import", None)
+    if configure_import is not None:
+        configure_import(tab)
     _sync_initial_availability(tab)
     return tab

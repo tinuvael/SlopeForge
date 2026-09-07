@@ -14,6 +14,7 @@ from domain.wall_conformance import (
     WallProfileMeasurements,
     aggregate_measurements,
     build_alignment_profile_sections,
+    has_compatible_actual_wall_section,
     measure_profiles,
     semantic_value_token,
 )
@@ -21,6 +22,89 @@ from domain.wall_conformance import (
 
 class WallConformanceUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class AssessmentGeometryMeasurementInputs:
+    """Mapped Wall Conformance Q2 values for the Assessment Geometry form.
+
+    ``None`` deliberately means the corresponding independently aggregated KPI
+    is unavailable.  It must not be converted to a zero in the UI because a
+    zero is a meaningful "design met" assessment input.
+    """
+
+    bench_angle_shortfall_deg: float | None
+    berm_width_deficit_m: float | None
+    toe_offset_from_design_m: float | None
+    mean_backbreak_m: float | None = None
+    maximum_backbreak_m: float | None = None
+    mean_overbreak_m: float | None = None
+    mean_underbreak_m: float | None = None
+    contour_rms_deviation_m: float | None = None
+
+    @property
+    def has_available_value(self) -> bool:
+        return any(value is not None for value in (
+            self.bench_angle_shortfall_deg,
+            self.berm_width_deficit_m,
+            self.toe_offset_from_design_m,
+            self.mean_backbreak_m,
+            self.maximum_backbreak_m,
+            self.mean_overbreak_m,
+            self.mean_underbreak_m,
+            self.contour_rms_deviation_m,
+        ))
+
+
+def assessment_geometry_inputs_from_measurement_summary(
+    measurement_summary: WallMeasurementSummary | None,
+) -> AssessmentGeometryMeasurementInputs:
+    """Map the independent Wall Conformance Q2 aggregates to Assessment inputs.
+
+    Wall Conformance reports signed Actual-minus-Design angle and upper-berm
+    deviations, whereas Assessment scores positive shortfalls/deficits.  Toe
+    remains signed because Assessment applies its existing absolute-value
+    scoring rule later.
+    """
+    if measurement_summary is None:
+        return AssessmentGeometryMeasurementInputs(None, None, None)
+
+    def median(name: str) -> float | None:
+        aggregate = getattr(measurement_summary, name, None)
+        value = getattr(aggregate, "median", None)
+        return None if value is None else float(value)
+
+    angle_deviation = median("angle_deviation_deg")
+    berm_deviation = median("upper_berm_width_deviation_m")
+    toe_offset = median("toe_signed_offset_u_m")
+    additional = getattr(measurement_summary, "additional_geometry", None)
+    backbreak = getattr(additional, "backbreak_m", None)
+    return AssessmentGeometryMeasurementInputs(
+        bench_angle_shortfall_deg=(
+            None if angle_deviation is None else max(0.0, -angle_deviation)
+        ),
+        berm_width_deficit_m=(
+            None if berm_deviation is None else max(0.0, -berm_deviation)
+        ),
+        toe_offset_from_design_m=toe_offset,
+        mean_backbreak_m=getattr(backbreak, "mean", None),
+        maximum_backbreak_m=getattr(backbreak, "maximum", None),
+        mean_overbreak_m=getattr(additional, "mean_overbreak_m", None),
+        mean_underbreak_m=getattr(additional, "mean_underbreak_m", None),
+        contour_rms_deviation_m=getattr(additional, "contour_rms_deviation_m", None),
+    )
+
+
+def compatible_actual_profile_count(result) -> int | None:
+    """Return existing Wall Conformance coverage, when a full result is available."""
+    profiles = getattr(getattr(result, "profile_sections", None), "profiles", None)
+    measurements = getattr(result, "measurements", None)
+    if profiles is None or measurements is None or len(profiles) != len(measurements):
+        return None
+    return sum(
+        has_compatible_actual_wall_section(profile, measurement)
+        for profile, measurement in zip(profiles, measurements)
+    )
 
 
 @dataclass(frozen=True)
@@ -195,5 +279,7 @@ class WallConformanceDiagnosticService:
             mapping_is_fallback=mapping_is_fallback,
             diagnostics=assembly_result.diagnostics,
             measurements=measurements,
-            measurement_summary=aggregate_measurements(measurements),
+            measurement_summary=aggregate_measurements(
+                measurements, assembly_result.profiles,
+            ),
         )

@@ -12,7 +12,10 @@ from statistics import mean, median
 from typing import Literal
 
 from .models import DesignSectionElement, SectionPoint, SectionSegment, TransverseProfile
-from .sections import clip_section_segments_to_u_interval
+from .sections import (
+    clip_section_segments_to_u_interval,
+    connected_section_segments,
+)
 
 
 DetectionState = Literal["detected", "low_confidence", "not_detected"]
@@ -180,6 +183,26 @@ class WallMeasurementSummary:
     angle_deviation_deg: KpiAggregate
     upper_berm_width_deviation_m: KpiAggregate
     toe_signed_offset_u_m: KpiAggregate
+    additional_geometry: "WallAdditionalGeometrySummary"
+
+
+@dataclass(frozen=True)
+class WallAdditionalGeometrySummary:
+    """Diagnostic-only geometry aggregates from accepted transverse profiles.
+
+    Backbreak remains a crest-by-profile statistic.  Face residual values are
+    integrated over valid Design-face arc length at each approximately evenly
+    spaced alignment station, so neither TIN subdivision nor raw vertex count
+    changes their weighting.
+    """
+
+    backbreak_m: KpiAggregate
+    mean_overbreak_m: float | None
+    mean_underbreak_m: float | None
+    contour_rms_deviation_m: float | None
+    valid_face_profile_count: int
+    total_profile_count: int
+    valid_face_support_length_m: float
 
 
 @dataclass(frozen=True)
@@ -1953,6 +1976,232 @@ def measure_profiles(
     return tuple(measure_profile(profile, settings) for profile in profiles)
 
 
+def has_compatible_actual_wall_section(
+    profile: TransverseProfile,
+    measurement: WallProfileMeasurements,
+) -> bool:
+    """Whether this profile supplies the evaluated Actual wall section.
+
+    This is the single Wall Conformance coverage contract.  It intentionally
+    uses the accepted local presentation/evaluation span on ``actual_segments``
+    rather than the wider raw measurement context used by the detector.
+    """
+    landmarks = measurement.actual_landmarks
+    upper_start = landmarks.upper_berm_start
+    upper_crest = landmarks.upper_crest
+    lower_toe = landmarks.lower_toe
+    upper = (
+        upper_start.point if upper_start.detection.reliable else
+        upper_crest.point if upper_crest.detection.reliable else None
+    )
+    toe = lower_toe.point if lower_toe.detection.reliable else None
+    if upper is None or toe is None or toe.u < upper.u:
+        return False
+    return bool(clip_section_segments_to_u_interval(
+        profile.actual_segments, upper.u, toe.u,
+    ))
+
+
+_MINIMUM_FACE_RESIDUAL_SUPPORT_M = 0.05
+
+
+@dataclass(frozen=True)
+class _FaceResidualSupport:
+    support_length_m: float
+    overbreak_integral_m2: float
+    overbreak_support_m: float
+    underbreak_integral_m2: float
+    underbreak_support_m: float
+    squared_integral_m3: float
+
+
+def _u_at_z_unambiguous(
+    segments: tuple[SectionSegment, ...], z: float, epsilon: float,
+) -> float | None:
+    """Return one physical section U at Z, or None for a gap/ambiguity.
+
+    A continuous polyline yields duplicate endpoint intersections that collapse
+    to one U.  Separate crossings at the same elevation are intentionally
+    ambiguous: selecting the one nearest Design would fabricate support.
+    """
+    values = []
+    for segment in segments:
+        dz = segment.end.z - segment.start.z
+        if abs(dz) <= epsilon:
+            continue
+        lower, upper = sorted((segment.start.z, segment.end.z))
+        if not lower + epsilon < z < upper - epsilon:
+            continue
+        fraction = (z - segment.start.z) / dz
+        values.append(segment.start.u + fraction * (segment.end.u - segment.start.u))
+    unique = []
+    for value in sorted(values):
+        if not unique or abs(value - unique[-1]) > epsilon:
+            unique.append(value)
+    return unique[0] if len(unique) == 1 else None
+
+
+def _line_u_at_z(segment: SectionSegment, z: float) -> float:
+    return segment.start.u + (z - segment.start.z) * (
+        (segment.end.u - segment.start.u) / (segment.end.z - segment.start.z)
+    )
+
+
+def _signed_linear_integrals(
+    first: float, last: float, support_length: float,
+) -> tuple[float, float, float, float]:
+    """Return positive/negative magnitude integrals and their support lengths."""
+    if support_length <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+    if first >= 0 and last >= 0:
+        return (support_length * (first + last) / 2, support_length, 0.0, 0.0)
+    if first <= 0 and last <= 0:
+        return (0.0, 0.0, support_length * (-first - last) / 2, support_length)
+    fraction = abs(first) / (abs(first) + abs(last))
+    first_length = support_length * fraction
+    second_length = support_length - first_length
+    if first > 0:
+        return (first_length * first / 2, first_length, second_length * -last / 2, second_length)
+    return (second_length * last / 2, second_length, first_length * -first / 2, first_length)
+
+
+def _face_residual_support(
+    profile: TransverseProfile,
+    measurement: WallProfileMeasurements,
+    settings: WallMeasurementTolerances,
+) -> _FaceResidualSupport | None:
+    """Integrate compatible Actual-vs-Design Face residuals for one profile.
+
+    The accepted crest anchors the connected physical Actual wall component.
+    A local data gap or unavailable lower toe does not discard the remaining
+    unambiguous Face support. Breakpoints from both piecewise-linear sections partition each Design Face
+    into exact common-Z intervals.  Residual integrals are then weighted by
+    Design-face arc length, not by triangulation vertices.
+    """
+    if not measurement.actual_landmarks.upper_crest.detection.reliable:
+        return None
+    actual_crest = measurement.actual_landmarks.upper_crest.point
+    if actual_crest is None:
+        return None
+    context = profile.measurement_context
+    section = context.design_section if context is not None else profile.design_section
+    actual_segments = context.actual_segments if context is not None else profile.actual_segments
+    if section is None or not actual_segments:
+        return None
+    actual_component = connected_section_segments(
+        actual_segments, actual_crest,
+        tolerance=settings.actual_connection_tolerance_m,
+    )
+    if not actual_component:
+        return None
+
+    support = positive_integral = positive_length = 0.0
+    negative_integral = negative_length = squared_integral = 0.0
+    for face in (element for element in section.elements if element.role == "face"):
+        design_segment = SectionSegment(face.start, face.end, -1, "face")
+        design_dz = design_segment.end.z - design_segment.start.z
+        design_du = design_segment.end.u - design_segment.start.u
+        if abs(design_dz) <= settings.geometry_epsilon_m:
+            continue
+        lower, upper = sorted((design_segment.start.z, design_segment.end.z))
+        breakpoints = {lower, upper}
+        breakpoints.update(
+            point.z for segment in actual_component for point in (segment.start, segment.end)
+            if lower < point.z < upper
+        )
+        normal_factor = abs(design_dz) / hypot(design_du, design_dz)
+        arc_per_z = hypot(design_du, design_dz) / abs(design_dz)
+        for first_z, last_z in zip(sorted(breakpoints), sorted(breakpoints)[1:]):
+            if last_z - first_z <= settings.geometry_epsilon_m:
+                continue
+            midpoint = (first_z + last_z) / 2
+            actual_mid_u = _u_at_z_unambiguous(
+                actual_component, midpoint, settings.geometry_epsilon_m,
+            )
+            if actual_mid_u is None:
+                continue
+            actual_segment = next(
+                segment for segment in actual_component
+                if abs(segment.end.z - segment.start.z) > settings.geometry_epsilon_m
+                and min(segment.start.z, segment.end.z) < midpoint < max(segment.start.z, segment.end.z)
+            )
+            first_residual = (
+                _line_u_at_z(design_segment, first_z)
+                - _line_u_at_z(actual_segment, first_z)
+            ) * normal_factor
+            last_residual = (
+                _line_u_at_z(design_segment, last_z)
+                - _line_u_at_z(actual_segment, last_z)
+            ) * normal_factor
+            interval_length = (last_z - first_z) * arc_per_z
+            overbreak, overbreak_length, underbreak, underbreak_length = _signed_linear_integrals(
+                first_residual, last_residual, interval_length,
+            )
+            support += interval_length
+            positive_integral += overbreak
+            positive_length += overbreak_length
+            negative_integral += underbreak
+            negative_length += underbreak_length
+            squared_integral += interval_length * (
+                first_residual ** 2 + first_residual * last_residual + last_residual ** 2
+            ) / 3
+    if support < _MINIMUM_FACE_RESIDUAL_SUPPORT_M:
+        return None
+    return _FaceResidualSupport(
+        support, positive_integral, positive_length, negative_integral,
+        negative_length, squared_integral,
+    )
+
+
+def _additional_geometry_summary(
+    measurements: tuple[WallProfileMeasurements, ...],
+    profiles: tuple[TransverseProfile, ...] | None,
+    settings: WallMeasurementTolerances,
+) -> WallAdditionalGeometrySummary:
+    total = len(measurements)
+    if profiles is None:
+        return WallAdditionalGeometrySummary(
+            _aggregate((), total), None, None, None, 0, total, 0.0,
+        )
+    if len(profiles) != total:
+        raise ValueError("Profiles and measurements must have matching lengths")
+    eligible = tuple(
+        (profile, measurement)
+        for profile, measurement in zip(profiles, measurements)
+        if has_compatible_actual_wall_section(profile, measurement)
+    )
+    backbreak = _aggregate(
+        tuple(
+            max(0.0, item.design_landmarks.upper_crest.point.u - item.actual_landmarks.upper_crest.point.u)
+            for _profile, item in eligible
+            if item.design_landmarks.upper_crest.detection.reliable
+            and item.actual_landmarks.upper_crest.detection.reliable
+            and item.design_landmarks.upper_crest.point is not None
+            and item.actual_landmarks.upper_crest.point is not None
+        ), total,
+    )
+    supports = tuple(
+        value for value in (
+            _face_residual_support(profile, measurement, settings)
+            for profile, measurement in eligible
+        ) if value is not None
+    )
+    if not supports:
+        return WallAdditionalGeometrySummary(backbreak, None, None, None, 0, total, 0.0)
+    valid_support = sum(item.support_length_m for item in supports)
+    overbreak_support = sum(item.overbreak_support_m for item in supports)
+    underbreak_support = sum(item.underbreak_support_m for item in supports)
+    return WallAdditionalGeometrySummary(
+        backbreak,
+        sum(item.overbreak_integral_m2 for item in supports) / overbreak_support
+        if overbreak_support else 0.0,
+        sum(item.underbreak_integral_m2 for item in supports) / underbreak_support
+        if underbreak_support else 0.0,
+        sqrt(sum(item.squared_integral_m3 for item in supports) / valid_support),
+        len(supports), total, valid_support,
+    )
+
+
 def _aggregate(values: tuple[float, ...], total_count: int) -> KpiAggregate:
     return KpiAggregate(
         valid_count=len(values),
@@ -1966,8 +2215,11 @@ def _aggregate(values: tuple[float, ...], total_count: int) -> KpiAggregate:
 
 def aggregate_measurements(
     measurements: tuple[WallProfileMeasurements, ...],
+    profiles: tuple[TransverseProfile, ...] | None = None,
+    tolerances: WallMeasurementTolerances | None = None,
 ) -> WallMeasurementSummary:
     """Aggregate paired per-profile deviations independently by KPI."""
+    settings = tolerances or WallMeasurementTolerances()
     return WallMeasurementSummary(
         angle_shortfall_deg=_aggregate(
             tuple(
@@ -2018,6 +2270,7 @@ def aggregate_measurements(
             ),
             len(measurements),
         ),
+        additional_geometry=_additional_geometry_summary(measurements, profiles, settings),
     )
 
 
@@ -2029,6 +2282,7 @@ __all__ = [
     "ProfileLandmarkDiagnostics",
     "ProfileLandmark",
     "WallMeasurementSummary",
+    "WallAdditionalGeometrySummary",
     "WallMeasurementTolerances",
     "WallProfileLandmarks",
     "WallProfileMeasurements",
@@ -2037,6 +2291,7 @@ __all__ = [
     "diagnose_profile_landmark_set",
     "diagnose_profile_landmarks",
     "extract_design_landmarks",
+    "has_compatible_actual_wall_section",
     "measure_profile",
     "measure_profiles",
 ]

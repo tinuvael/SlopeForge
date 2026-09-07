@@ -714,6 +714,223 @@ def test_aggregation_uses_paired_deviations_and_independent_valid_counts() -> No
     assert summary.toe_deviation_m.primary_value == 4.0
 
 
+def _reliable_landmarks(crest, toe):
+    detected = MeasurementDetection("detected", "detected", "ok")
+    missing = MeasurementDetection("not_detected", "not_used", "not used")
+    return WallProfileLandmarks(
+        ProfileLandmark(None, missing),
+        ProfileLandmark(point(*crest), detected),
+        ProfileLandmark(point(*toe), detected),
+    )
+
+
+def _face_conformity_profile(*, offset=0.0, actual_segments=None, chainage=0.0):
+    """One 45-degree Design face; positive offset is overbreak in U."""
+    design = segment((0.0, 10.0), (10.0, 0.0), 1, "face")
+    section = DesignSection((element("face", (0.0, 10.0), (10.0, 0.0), 1),))
+    actual = actual_segments or (segment((-offset, 10.0), (10.0-offset, 0.0), 2),)
+    profile = TransverseProfile(
+        WallAlignmentSample(chainage, SurfaceVertex(0.0, 0.0, 10.0), (0.0, 1.0), (1.0, 0.0)),
+        (design,), actual, section,
+        measurement_context=ProfileMeasurementContext(section, (design,), actual, ((-3.0, 13.0),)),
+    )
+    design_landmarks = _reliable_landmarks((0.0, 10.0), (10.0, 0.0))
+    actual_landmarks = _reliable_landmarks((-offset, 10.0), (10.0-offset, 0.0))
+    detected = MeasurementDetection("detected", "detected", "ok")
+    return profile, WallProfileMeasurements(
+        chainage, design_landmarks, actual_landmarks,
+        None, None, None, None, None, None, None, None,
+        detected, detected, detected,
+    )
+
+
+def test_additional_geometry_backbreak_mean_maximum_and_reliability() -> None:
+    first_profile, first = _face_conformity_profile(offset=1.2)
+    second_profile, second = _face_conformity_profile(offset=-0.5, chainage=3.0)
+    missing_crest = replace(
+        second,
+        actual_landmarks=WallProfileLandmarks(
+            second.actual_landmarks.upper_berm_start,
+            ProfileLandmark(None, MeasurementDetection("not_detected", "missing", "missing")),
+            second.actual_landmarks.lower_toe,
+        ),
+    )
+    summary = aggregate_measurements(
+        (first, second, missing_crest), (first_profile, second_profile, second_profile),
+    ).additional_geometry
+    assert isclose(summary.backbreak_m.mean, 0.6)
+    assert isclose(summary.backbreak_m.maximum, 1.2)
+    assert summary.backbreak_m.valid_count == 2
+
+
+def test_additional_geometry_face_residual_sign_and_exact_match() -> None:
+    over_profile, over = _face_conformity_profile(offset=1.0)
+    under_profile, under = _face_conformity_profile(offset=-1.0, chainage=3.0)
+    exact_profile, exact = _face_conformity_profile(offset=0.0, chainage=6.0)
+    over_summary = aggregate_measurements((over,), (over_profile,)).additional_geometry
+    under_summary = aggregate_measurements((under,), (under_profile,)).additional_geometry
+    exact_summary = aggregate_measurements((exact,), (exact_profile,)).additional_geometry
+    missing_toe = replace(
+        over,
+        actual_landmarks=WallProfileLandmarks(
+            over.actual_landmarks.upper_berm_start,
+            over.actual_landmarks.upper_crest,
+            ProfileLandmark(None, MeasurementDetection("not_detected", "gap", "gap")),
+        ),
+    )
+    partial_support_summary = aggregate_measurements(
+        (missing_toe,), (over_profile,),
+    ).additional_geometry
+    normal = 2 ** -0.5
+    assert isclose(over_summary.mean_overbreak_m, normal)
+    assert over_summary.mean_underbreak_m == 0.0
+    assert isclose(under_summary.mean_underbreak_m, normal)
+    assert under_summary.mean_overbreak_m == 0.0
+    assert isclose(exact_summary.mean_overbreak_m, 0.0)
+    assert isclose(exact_summary.mean_underbreak_m, 0.0)
+    assert isclose(exact_summary.contour_rms_deviation_m, 0.0)
+    assert partial_support_summary.mean_overbreak_m is None
+    assert partial_support_summary.mean_underbreak_m is None
+    assert partial_support_summary.contour_rms_deviation_m is None
+
+
+def test_additional_geometry_mixed_signs_and_collinear_subdivision_are_invariant() -> None:
+    over_profile, over = _face_conformity_profile(offset=1.0)
+    under_profile, under = _face_conformity_profile(offset=-1.0, chainage=3.0)
+    baseline = aggregate_measurements((over, under), (over_profile, under_profile)).additional_geometry
+    subdivided_actual = (
+        segment((-1.0, 10.0), (4.0, 5.0), 2),
+        segment((4.0, 5.0), (9.0, 0.0), 3),
+    )
+    subdivided_profile, subdivided = _face_conformity_profile(
+        offset=1.0, actual_segments=subdivided_actual,
+    )
+    subdivision = aggregate_measurements((subdivided,), (subdivided_profile,)).additional_geometry
+    subdivided_section = DesignSection((
+        element("face", (0.0, 10.0), (5.0, 5.0), 1),
+        element("face", (5.0, 5.0), (10.0, 0.0), 2),
+    ))
+    subdivided_design = (
+        segment((0.0, 10.0), (5.0, 5.0), 1, "face"),
+        segment((5.0, 5.0), (10.0, 0.0), 2, "face"),
+    )
+    subdivided_design_profile = replace(
+        over_profile,
+        design_segments=subdivided_design,
+        design_section=subdivided_section,
+        measurement_context=ProfileMeasurementContext(
+            subdivided_section, subdivided_design, over_profile.actual_segments,
+            ((-3.0, 13.0),),
+        ),
+    )
+    design_subdivision = aggregate_measurements(
+        (over,), (subdivided_design_profile,),
+    ).additional_geometry
+    normal = 2 ** -0.5
+    assert isclose(baseline.mean_overbreak_m, normal)
+    assert isclose(baseline.mean_underbreak_m, normal)
+    assert isclose(baseline.contour_rms_deviation_m, normal)
+    assert isclose(subdivision.mean_overbreak_m, normal)
+    assert isclose(subdivision.contour_rms_deviation_m, normal)
+    assert isclose(design_subdivision.mean_overbreak_m, normal)
+    assert isclose(design_subdivision.contour_rms_deviation_m, normal)
+
+
+def test_additional_geometry_excludes_non_face_and_ambiguous_actual_support() -> None:
+    design = (
+        element("face", (0.0, 20.0), (5.0, 15.0), 1),
+        element("berm", (5.0, 15.0), (10.0, 15.0), 2),
+        element("face", (10.0, 15.0), (15.0, 10.0), 3),
+    )
+    design_segments = tuple(
+        SectionSegment(item.start, item.end, item.source_triangle_indices[0], item.role)
+        for item in design
+    )
+    actual = (
+        segment((-1.0, 20.0), (4.0, 15.0), 4),
+        segment((4.0, 15.0), (9.0, 15.0), 5),
+        segment((9.0, 15.0), (14.0, 10.0), 6),
+    )
+    section = DesignSection(design)
+    profile = TransverseProfile(
+        WallAlignmentSample(0.0, SurfaceVertex(0.0, 0.0, 20.0), (0.0, 1.0), (1.0, 0.0)),
+        design_segments, actual, section,
+        measurement_context=ProfileMeasurementContext(section, design_segments, actual, ((-3.0, 18.0),)),
+    )
+    detected = MeasurementDetection("detected", "detected", "ok")
+    measurement = WallProfileMeasurements(
+        0.0, _reliable_landmarks((0.0, 20.0), (15.0, 10.0)),
+        _reliable_landmarks((-1.0, 20.0), (14.0, 10.0)),
+        None, None, None, None, None, None, None, None, detected, detected, detected,
+    )
+    summary = aggregate_measurements((measurement,), (profile,)).additional_geometry
+    assert isclose(summary.mean_overbreak_m, 2 ** -0.5)
+    assert isclose(summary.contour_rms_deviation_m, 2 ** -0.5)
+
+    ambiguous = (
+        segment((0.0, 10.0), (10.0, 0.0), 7),
+        segment((0.0, 10.0), (2.0, 0.0), 8),
+    )
+    ambiguous_profile, ambiguous_measurement = _face_conformity_profile(
+        actual_segments=ambiguous,
+    )
+    no_support = aggregate_measurements(
+        (ambiguous_measurement,), (ambiguous_profile,),
+    ).additional_geometry
+    assert no_support.mean_overbreak_m is None
+    assert no_support.mean_underbreak_m is None
+    assert no_support.contour_rms_deviation_m is None
+
+
+def test_additional_geometry_requires_existing_compatible_actual_profile_span() -> None:
+    profile, measurement = _face_conformity_profile(offset=1.0)
+    raw_context_only = replace(
+        profile,
+        actual_segments=(),
+        measurement_context=replace(
+            profile.measurement_context, actual_segments=profile.actual_segments,
+        ),
+    )
+    summary = aggregate_measurements(
+        (measurement,), (raw_context_only,),
+    ).additional_geometry
+    assert summary.backbreak_m.valid_count == 0
+    assert summary.backbreak_m.mean is None and summary.backbreak_m.maximum is None
+    assert summary.mean_overbreak_m is None
+    assert summary.mean_underbreak_m is None
+    assert summary.contour_rms_deviation_m is None
+
+
+def test_additional_geometry_uses_only_compatible_profiles_not_raw_context() -> None:
+    first_profile, first = _face_conformity_profile(offset=1.0)
+    second_profile, second = _face_conformity_profile(offset=0.0, chainage=3.0)
+    incompatible = []
+    for index, offset in enumerate((8.0, -6.0, 40.0), start=2):
+        profile, measurement = _face_conformity_profile(offset=offset, chainage=index * 3.0)
+        incompatible.append((
+            replace(
+                profile,
+                actual_segments=(),
+                measurement_context=replace(
+                    profile.measurement_context, actual_segments=profile.actual_segments,
+                ),
+            ),
+            measurement,
+        ))
+    profiles = (first_profile, second_profile, *(item[0] for item in incompatible))
+    measurements = (first, second, *(item[1] for item in incompatible))
+    summary = aggregate_measurements(measurements, profiles).additional_geometry
+    assert summary.backbreak_m.valid_count == 2
+    assert isclose(summary.backbreak_m.mean, 0.5)
+    assert isclose(summary.backbreak_m.maximum, 1.0)
+    # Existing residual semantics include the exact-match profile's zero
+    # support in the positive side; the incompatible raw contexts contribute
+    # nothing to either support or aggregate.
+    assert isclose(summary.mean_overbreak_m, 2 ** -1.5)
+    assert summary.mean_underbreak_m == 0.0
+    assert isclose(summary.contour_rms_deviation_m, 0.5)
+
+
 def test_presentation_aggregates_preserve_signed_existing_measurements() -> None:
     measured = measure_profile(
         replace(design_profile(), actual_segments=design_profile().design_segments)

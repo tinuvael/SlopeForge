@@ -30,7 +30,7 @@ from application.services.wall_conformance import (
     WallConformanceDiagnosticSettings,
 )
 from domain.geometry.types import PlanPoint, PlanPolygon
-from domain.wall_conformance import WallAlignment
+from domain.wall_conformance import WallAlignment, has_compatible_actual_wall_section
 from domain.wall_conformance.models import SectionPoint
 from ui.widgets.design_system import set_status_role
 from ui.widgets.plan_view import PlanView
@@ -867,20 +867,7 @@ class WallProfilePlot(QWidget):
 
     @classmethod
     def _profile_has_compatible_actual_display(cls, profile, measurement):
-        upper_start = cls._reliable_actual_landmark_from(
-            measurement, "upper_berm_start"
-        )
-        upper_crest = cls._reliable_actual_landmark_from(
-            measurement, "upper_crest"
-        )
-        lower_toe = cls._reliable_actual_landmark_from(measurement, "lower_toe")
-        upper = upper_start or upper_crest
-        if upper is None or lower_toe is None or lower_toe.u < upper.u:
-            return False
-        return bool(cls._clip_segments_to_u_interval(
-            profile.actual_segments,
-            (upper.u, lower_toe.u),
-        ))
+        return has_compatible_actual_wall_section(profile, measurement)
 
     @classmethod
     def _profile_has_overview_actual_display(cls, profile, measurement):
@@ -1276,6 +1263,8 @@ class WallProfilePlot(QWidget):
 class WallConformanceTab(QWidget):
     """Read-only diagnostic view for current Project design vs actual surfaces."""
 
+    wall_conformance_state_changed = Signal()
+
     def __init__(self, context, site_id: int, assessment_polygon: PlanPolygon, parent=None,
                  *, area=None, geometry_revision=None, controller=None,
                  read_only: bool = False):
@@ -1636,12 +1625,14 @@ class WallConformanceTab(QWidget):
         )
         if alignment is None:
             self.alignment_metadata.setText(tr("Wall Alignment · not set"))
+            self.wall_conformance_state_changed.emit()
             return
         self.alignment_metadata.setText(
             tr("Wall Alignment · %1 vertices · %2 m")
             .replace("%1", str(len(alignment.points)))
             .replace("%2", f"{alignment.length_m:.1f}")
         )
+        self.wall_conformance_state_changed.emit()
 
     def _load_saved_wall_alignment(self) -> None:
         if self.controller is None or self.area is None or self.geometry_revision is None:

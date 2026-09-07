@@ -915,6 +915,23 @@ def test_read_only_alignment_controls_do_not_modify_persisted_state(monkeypatch)
     tab.deleteLater()
 
 
+def test_read_only_design_semantics_control_cannot_open_persistent_editor(monkeypatch):
+    _app()
+    monkeypatch.setattr(module, "create_project_surface_dataset_service", lambda _context: _Surfaces())
+    tab = module.WallConformanceTab(
+        object(), 1, _area(), area=object(), geometry_revision=object(),
+        controller=_AlignmentController(), read_only=True,
+    )
+
+    assert not tab.edit_semantics.isEnabled()
+    monkeypatch.setattr(
+        "ui.dialogs.design_surface_semantics_dialog.DesignSurfaceSemanticsDialog",
+        lambda *_args: pytest.fail("read-only Wall Conformance must not open semantics editing"),
+    )
+    tab._edit_design_semantics()
+    tab.deleteLater()
+
+
 def test_historical_geometry_alignment_is_displayed_but_not_editable(monkeypatch):
     saved = WallAlignment((PlanPoint(0, 4), PlanPoint(0, 16)))
     controller = _AlignmentController(saved)
@@ -950,6 +967,33 @@ def test_alignment_save_failure_restores_the_previous_displayed_alignment(monkey
     tab.plan._complete_draft_from_double_click(1.0, 16.0)
     assert tab.plan.wall_alignment == saved
     assert "could not be saved" in tab.status.text()
+    tab.deleteLater()
+
+
+def test_spacing_change_and_failed_recalculation_clear_stale_wall_display(monkeypatch):
+    tab = _tab(monkeypatch)
+    _complete_alignment(tab)
+    tab.calculate()
+    tab._select_profile(1)
+    tab.profile_plot.measure_point_a = (2.0, 18.0)
+
+    tab.spacing.setValue(5.0)
+
+    assert tab.result is None
+    assert not tab.plan._profile_items
+    assert tab.profile_plot.mode == "empty"
+    assert tab.profile_plot.measure_point_a is None
+    assert "spacing changed" in tab.status.text().lower()
+
+    tab.calculate()
+    assert tab.result is not None
+    tab.service.calculate_current = lambda *_args: (_ for _ in ()).throw(RuntimeError("surface read failed"))
+    tab.calculate()
+
+    assert tab.result is None
+    assert not tab.plan._profile_items
+    assert tab.profile_plot.mode == "empty"
+    assert "surface read failed" in tab.status.text()
     tab.deleteLater()
 
 

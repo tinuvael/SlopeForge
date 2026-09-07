@@ -1407,7 +1407,7 @@ def _outer_boundary_crest_search_z_interval(
     One assessed Design Face height is the local engineering scale: it bounds
     the search to this wall's upper neighbourhood without asserting that the
     Actual crest has the Design elevation.  It is geometry-derived rather than
-    a profile-, mine-, or coordinate-specific tolerance.
+    a profile-, site-, or coordinate-specific tolerance.
     """
     if expected is None:
         return None

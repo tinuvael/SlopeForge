@@ -320,7 +320,7 @@ class WallConformancePlanWidget(QWidget):
         colors = cls._colors()
         pen = QPen(
             colors["selected"] if selected else colors["profile"],
-            3.0 if selected else 1.0,
+            1.0,
         )
         pen.setCosmetic(True)
         return pen
@@ -1341,6 +1341,7 @@ class WallConformanceTab(QWidget):
         self.spacing.setValue(3.0)
         self.spacing.setSuffix(" m")
         self.spacing.setMaximumWidth(110)
+        self.spacing.valueChanged.connect(self._profile_spacing_changed)
         controls.addWidget(self.spacing)
         self.alignment_metadata = QLabel(tr("Wall Alignment · not set"))
         self.alignment_metadata.setObjectName("MutedText")
@@ -1579,7 +1580,10 @@ class WallConformanceTab(QWidget):
             else tr("Design semantics · %1").replace("%1", mapping.attribute_name)
         )
         self.semantic_mapping.setText(f"{prefix} · {detail}")
-        self.edit_semantics.setEnabled(bool(getattr(self.service.surface_service, "storage_available", True)))
+        self.edit_semantics.setEnabled(
+            not self.read_only
+            and bool(getattr(self.service.surface_service, "storage_available", True))
+        )
 
     def _refresh_calculation_availability(self) -> None:
         if self._alignment_load_error is not None:
@@ -1676,6 +1680,15 @@ class WallConformanceTab(QWidget):
         self.profile_summary.setText("—")
         self._clear_details()
 
+    def _profile_spacing_changed(self, _value: float) -> None:
+        """Invalidate transient sections when their placement input changes."""
+        if self.result is None:
+            return
+        self._clear_calculated_result()
+        self.status.setText(tr("Profile spacing changed. Calculate profiles again."))
+        set_status_role(self.status, "info")
+        self._refresh_calculation_availability()
+
     def _begin_alignment_drawing(self) -> None:
         if self.read_only:
             return
@@ -1729,6 +1742,8 @@ class WallConformanceTab(QWidget):
         self._refresh_calculation_availability()
 
     def _edit_design_semantics(self) -> None:
+        if self.read_only:
+            return
         from ui.dialogs.design_surface_semantics_dialog import DesignSurfaceSemanticsDialog
 
         try:
@@ -1762,12 +1777,7 @@ class WallConformanceTab(QWidget):
                 self._settings(),
             )
         except Exception as exc:
-            self.result = None
-            self.profile_selector.clear()
-            self.profile_summary.setText("—")
-            self.profile_plot.set_profile(None)
-            self._update_profile_legend()
-            self._clear_details()
+            self._clear_calculated_result()
             self.status.setText(str(exc))
             set_status_role(self.status, "error")
             self._refresh_dataset_metadata()

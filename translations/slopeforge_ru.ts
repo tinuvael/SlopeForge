@@ -4613,5 +4613,87 @@ Continue?</source><translation>Новый горизонт отличается 
     <message><source>U (m, + toward wall/toe)</source><translation>U (м, + в сторону борта/подошвы)</translation></message>
     <message><source>Variant %1 · %2 · %3 profiles</source><translation>Вариант %1 · %2 · профилей: %3</translation></message>
     <message><source>dZ (m, local Design crest = 0)</source><translation>dZ (м, локальная проектная бровка = 0)</translation></message>
+    <message><source>%1 context</source><translation>контекст %1</translation></message>
+    <message><source>%1 profiles</source><translation>%1 профилей</translation></message>
+    <message><source>%1 skipped</source><translation>пропущено: %1</translation></message>
+    <message><source>%1 · %2 · %3 profiles</source><translation>%1 · %2 · %3 профилей</translation></message>
+    <message><source>%1% coverage</source><translation>покрытие %1%</translation></message>
+    <message><source>%1/%2</source><translation>%1/%2</translation></message>
+    <message><source>Actual lower toe</source><translation>Фактическая нижняя подошва</translation></message>
+    <message><source>Actual upper berm start</source><translation>Начало фактической верхней бермы</translation></message>
+    <message><source>Actual upper crest</source><translation>Фактическая верхняя бровка</translation></message>
+    <message><source>Actual upper crest · elevation fallback</source><translation>Фактическая верхняя бровка · резерв по отметке</translation></message>
+    <message><source>Actual upper crest · face-run onset</source><translation>Фактическая верхняя бровка · начало участка откоса</translation></message>
+    <message><source>Additional geometry metrics</source><translation>Дополнительные геометрические показатели</translation></message>
+    <message><source>Angle</source><translation>Угол</translation></message>
+    <message><source>Angle shortfall</source><translation>Недобор угла</translation></message>
+    <message><source>Applied from Wall Conformance Q2</source><translation>Применено из Q2 «Соответствие борта»</translation></message>
+    <message><source>Apply</source><translation>Применить</translation></message>
+    <message><source>Berm deficit</source><translation>Недобор ширины бермы</translation></message>
+    <message><source>Ch. %1 m · %2 · %3</source><translation>Пикетаж %1 м · %2 · %3</translation></message>
+    <message><source>Click two points to measure</source><translation>Щёлкните две точки для измерения</translation></message>
+    <message><source>Contour RMS</source><translation>RMS отклонения контура</translation></message>
+    <message><source>Define a Wall Alignment to calculate profiles.</source><translation>Задайте ось борта для расчёта профилей.</translation></message>
+    <message><source>Design semantics · %1</source><translation>Семантика проекта · %1</translation></message>
+    <message><source>Design semantics · default mapping</source><translation>Семантика проекта · соответствие по умолчанию</translation></message>
+    <message><source>Deviation</source><translation>Отклонение</translation></message>
+    <message><source>Draw Wall Alignment: click vertices, then press Enter or double-click to finish. Esc cancels.</source><translation>Начертите ось борта: щёлкайте вершины, затем нажмите Enter или дважды щёлкните для завершения. Esc отменяет действие.</translation></message>
+    <message><source>Edit Wall Alignment</source><translation>Изменить ось борта</translation></message>
+    <message><source>Existing value will be kept</source><translation>Текущее значение будет сохранено</translation></message>
+    <message><source>H / A</source><translation>H / A</translation></message>
+    <message><source>Insufficient data</source><translation>Недостаточно данных</translation></message>
+    <message><source>Lower toe</source><translation>Нижняя подошва</translation></message>
+    <message><source>Manual measure</source><translation>Ручное измерение</translation></message>
+    <message><source>Maximum backbreak</source><translation>Максимальное разрушение бровки</translation></message>
+    <message><source>Mean %1 · %2</source><translation>Среднее %1 · %2</translation></message>
+    <message><source>Mean backbreak</source><translation>Среднее разрушение бровки</translation></message>
+    <message><source>Mean overbreak</source><translation>Средний перебор</translation></message>
+    <message><source>Mean underbreak</source><translation>Средний недобор</translation></message>
+    <message><source>Measure</source><translation>Измерить</translation></message>
+    <message><source>N/A</source><translation>Н/Д</translation></message>
+    <message><source>N/A · Pit boundary</source><translation>Н/Д · граница карьера</translation></message>
+    <message><source>No compatible Actual wall section</source><translation>Нет совместимого фактического сечения борта</translation></message>
+    <message><source>No compatible Actual wall sections were found.
+There are no Wall Conformance measurements to apply.</source><translation>Совместимые фактические сечения борта не найдены.
+Нет измерений «Соответствие борта» для применения.</translation></message>
+    <message><source>No context</source><translation>Нет контекста</translation></message>
+    <message><source>No upstream context</source><translation>Нет вышележащего контекста</translation></message>
+    <message><source>Overall angle</source><translation>Общий угол</translation></message>
+    <message><source>Profile %1</source><translation>Профиль %1</translation></message>
+    <message><source>Profile skipped</source><translation>Профиль пропущен</translation></message>
+    <message><source>Profile spacing changed. Calculate profiles again.</source><translation>Шаг профилей изменён. Рассчитайте профили повторно.</translation></message>
+    <message><source>Q2 %1</source><translation>Q2 %1</translation></message>
+    <message><source>R%1 · %2 · %3 triangles</source><translation>R%1 · %2 · %3 треугольников</translation></message>
+    <message><source>Range %1 … %2</source><translation>Диапазон %1 … %2</translation></message>
+    <message><source>Range %1–%2 m</source><translation>Диапазон %1–%2 м</translation></message>
+    <message><source>Representative Design</source><translation>Репрезентативный проект</translation></message>
+    <message><source>Set Wall Alignment</source><translation>Задать ось борта</translation></message>
+    <message><source>Shared file storage is unavailable for this connection.</source><translation>Общее файловое хранилище недоступно для этого подключения.</translation></message>
+    <message><source>Skipped station</source><translation>Пропущенная станция</translation></message>
+    <message><source>The available Geometry inputs were sourced from Wall Conformance Q2 measurements.</source><translation>Доступные геометрические входные данные получены из измерений Q2 «Соответствие борта».</translation></message>
+    <message><source>Toe U</source><translation>Подошва U</translation></message>
+    <message><source>U / Z</source><translation>U / Z</translation></message>
+    <message><source>U / dZ (m)</source><translation>U / dZ (м)</translation></message>
+    <message><source>Upper berm</source><translation>Верхняя берма</translation></message>
+    <message><source>Upstream %1</source><translation>Выше по профилю %1</translation></message>
+    <message><source>Use Wall Conformance measurements</source><translation>Использовать измерения «Соответствие борта»</translation></message>
+    <message><source>Use Wall Conformance measurements?</source><translation>Использовать измерения «Соответствие борта»?</translation></message>
+    <message><source>Variant</source><translation>Вариант</translation></message>
+    <message><source>Variant %1 · %2 profiles · %3</source><translation>Вариант %1 · %2 профилей · %3</translation></message>
+    <message><source>W</source><translation>W</translation></message>
+    <message><source>Wall Alignment</source><translation>Ось борта</translation></message>
+    <message><source>Wall Alignment is not defined.</source><translation>Ось борта не задана.</translation></message>
+    <message><source>Wall Alignment · %1 vertices · %2 m</source><translation>Ось борта · %1 вершин · %2 м</translation></message>
+    <message><source>Wall Alignment · not set</source><translation>Ось борта · не задана</translation></message>
+    <message><source>Wall Conformance</source><translation>Соответствие борта</translation></message>
+    <message><source>Wall Conformance Q2</source><translation>Соответствие борта Q2</translation></message>
+    <message><source>Wall Conformance Q2 measurements populate the Geometry inputs after confirmation.</source><translation>После подтверждения измерения Q2 «Соответствие борта» заполняют геометрические входные данные.</translation></message>
+    <message><source>Wall Conformance has no valid measurements for this Assessment Area.</source><translation>Для этого участка оценки нет действительных измерений «Соответствие борта».</translation></message>
+    <message><source>Wall Conformance is not available for the active geometry revision.</source><translation>«Соответствие борта» недоступно для активной ревизии геометрии.</translation></message>
+    <message><source>Wall Conformance is not available for this Assessment Area.</source><translation>«Соответствие борта» недоступно для этого участка оценки.</translation></message>
+    <message><source>Wall Conformance measurements are only available for the active geometry revision.</source><translation>Измерения «Соответствие борта» доступны только для активной ревизии геометрии.</translation></message>
+    <message><source>Wall Conformance measurements unavailable</source><translation>Измерения «Соответствие борта» недоступны</translation></message>
+    <message><source>Wall Conformance unavailable</source><translation>«Соответствие борта» недоступно</translation></message>
+    <message><source>context</source><translation>контекст</translation></message>
 </context>
 </TS>

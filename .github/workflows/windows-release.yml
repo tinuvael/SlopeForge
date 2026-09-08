@@ -26,10 +26,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
 
       - name: Install runtime and build dependencies
@@ -106,10 +106,23 @@ jobs:
           $ErrorActionPreference = "Stop"
           $portable = Join-Path $env:RUNNER_TEMP "portable"
           Expand-Archive "${{ steps.release.outputs.zip }}" $portable
-          python tools/validate_windows_payload.py "$portable/SlopeForge"
+          $portablePayload = "$portable/SlopeForge"
+          python tools/validate_windows_payload.py $portablePayload
+          $portableUpdater = "$portablePayload/SlopeForgeUpdater.exe"
+          if (!(Test-Path $portableUpdater)) { throw "Portable payload did not include SlopeForge Updater" }
+          $portableSmoke = Start-Process $portableUpdater -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($portableSmoke.ExitCode -ne 0) { throw "Portable SlopeForgeUpdater smoke test failed with exit code $($portableSmoke.ExitCode)" }
+          $portableCredentialSmoke = Start-Process $portableUpdater -ArgumentList "--credential-smoke-test" -Wait -PassThru
+          if ($portableCredentialSmoke.ExitCode -ne 0) { throw "Portable SlopeForgeUpdater Credential Manager smoke test failed with exit code $($portableCredentialSmoke.ExitCode)" }
+
           $installed = Join-Path $env:RUNNER_TEMP "installed"
           Start-Process "${{ steps.release.outputs.setup }}" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installed" -Wait -NoNewWindow
           python tools/validate_windows_payload.py $installed
+          if (!(Test-Path "$installed/SlopeForgeUpdater.exe")) { throw "Installer did not include SlopeForge Updater" }
+          $installedSmoke = Start-Process "$installed/SlopeForgeUpdater.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($installedSmoke.ExitCode -ne 0) { throw "Installed SlopeForgeUpdater smoke test failed with exit code $($installedSmoke.ExitCode)" }
+          $installedCredentialSmoke = Start-Process "$installed/SlopeForgeUpdater.exe" -ArgumentList "--credential-smoke-test" -Wait -PassThru
+          if ($installedCredentialSmoke.ExitCode -ne 0) { throw "Installed SlopeForgeUpdater Credential Manager smoke test failed with exit code $($installedCredentialSmoke.ExitCode)" }
           if (!(Test-Path "$installed/unins000.exe")) { throw "Installer did not create an uninstaller" }
           Start-Process "$installed/unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -NoNewWindow
           if (Test-Path "$installed/SlopeForge.exe") { throw "Silent uninstall left application files behind" }

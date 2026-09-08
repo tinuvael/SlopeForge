@@ -201,79 +201,17 @@ aggregates have zero valid count and `None` statistics. No subtraction of
 independently aggregated Design/Actual values occurs.
 
 The existing Assessment criteria (`bench_angle`, `berm_width`, `toe_position`)
-and DAI/FCI calculations remain untouched. This phase does not fill them.
-
-## Finite local validation, 2026-09-05
-
-Command: `python -m tools.validate_wall_measurement_context`, using the existing
-saved connection, Assessment `AA-92E59B43`, and explicit development alignment.
-The current run generated 52 profiles. All 52 had empty Actual evaluation and
-measurement-context geometry after the existing context limits. Each KPI had
-0/52 valid profiles, with `not_detected / no_actual_coverage` and no statistics.
-This current observation supersedes the older unbounded-context observations
-in `wall_conformance_measurement_context.md`.
-
-| Chainage m | Design berm start U/Z | Design crest U/Z | Design toe U/Z | Design overall angle | Design upper width m |
-| ---: | --- | --- | --- | ---: | ---: |
-| 0.000 | 44.113 / 640.000 | 47.113 / 640.000 | 53.174 / 624.523 | 68.614° | 3.000 |
-| 77.553 | 45.393 / 644.736 | 55.396 / 644.700 | 72.447 / 615.412 | 59.793° | 10.003 |
-| 152.123 | 57.627 / 638.678 | 67.625 / 638.616 | 84.816 / 607.293 | 61.241° | 9.998 |
-
-At each example, all three Design landmarks are detected. All Actual U/Z,
-Actual angles/widths, angle shortfall, berm deficit, and signed/absolute toe
-offsets are `None`, with the explicit coverage status above. Full-precision
-examples are saved in the local `build/validation/wall_measurements.json` report.
-
-Successful Actual detection is demonstrated by deterministic profile and
-generated-surface tests, not by this real dataset. Positive real-survey
-validation remains outstanding until suitable local coverage is available.
-No profile placement or tolerance was changed to manufacture a real result.
-
-## Targeted runtime validation, 2026-09-05
-
-The read-only `python -m tools.diagnose_area1_wall_landmarks` reproduction of
-Assessment Area `AA-9FA43299` (`area1`, `Zazerkaliye / South`) resolved active
-Design R1 (310 triangles), Actual R2 (1,366 triangles), the persisted 11-vertex
-Wall Alignment (111.015 m), and 3 m spacing. It generated 37 accepted profiles.
-After the physical-topology change, upper berm start, upper crest, and lower
-toe were each detected on all 37 profiles; every profile had all three
-landmarks. The generated JSON contains per-profile raw/context/display counts,
-candidate ranks and hard gates for subsequent inspection.
+and DAI/FCI calculations remain untouched. Wall Conformance only populates an
+Assessment draft after the user explicitly previews and applies the current
+measurements; the normal Assessment save workflow remains authoritative.
 
 ## Limits
 
-This is a conservative local piecewise-linear detector. Rounded transitions,
-overhangs, exactly vertical or branching sections, very short platforms, large
+This is a conservative local piecewise-linear detector. Complex outer-boundary
+Actual geometry may remain low-confidence or N/A when more than one physical
+transition is plausible. Rounded transitions, overhangs, exactly vertical or
+branching sections, very short platforms, large
 departures from Design, or insufficient survey support can be rejected. Output
 coordinates follow the Actual mesh vertices; no sub-mesh precision is claimed.
 Endpoint angles need supported crest/toe landmarks, rather than complete
 coverage of every internal bench. The Berm width requires connected coverage.
-
-## Verification
-
-Python 3.14, Qt offscreen, 2026-09-05:
-
-* All Wall Conformance domain tests: **308 passed**, including the measurement,
-  measurement-context, generation, spacing and reversal regressions.
-* Final full suite: **1413 passed, 1 skipped, 7 failed** in 76.97 seconds.
-* Architecture audit: completed; no domain framework imports or internal cycles.
-* Compileall over app/application/domain/infrastructure/database/repositories/ui:
-  passed. `git diff --check`: passed; new files also checked for whitespace.
-
-The seven failures are outside these measurement edits and were not fixed:
-
-| Test area | Failure |
-| --- | --- |
-| Assessment write contracts | Read-only `load_wall_alignment` is included in a test requiring `expected_version` on every method |
-| Frozen geometry metadata | Expected migration list omits existing revision 3 |
-| Block overview | Source-string assertion no longer finds `overview_stack.addWidget(self.general_info)` |
-| Localization | 35 existing UI strings lack finished Russian translations |
-| Wall Conformance installer, two tests | Fake Assessment page lacks `read_only` |
-| Wall Conformance profile legend | Selecting a profile changes the scene bounding rectangle |
-
-Full output is in local `build/validation/wall_measurements_full_suite.txt`.
-The previously modified placement, models, semantic reducer, intersections,
-measurement context, service, ORM, alignment writes and migration files retain
-their starting hashes. This task changed only `measurements.py`, its focused
-test file, and this document, plus local validation output. Nothing was staged,
-committed, pushed or merged.

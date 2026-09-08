@@ -49,35 +49,9 @@ context edge. Context has no Assessment Z clip.
 The existing locality, orientation, residual, ambiguity and connected-support
 checks continue to apply. No lines are extrapolated over dataset ends or gaps.
 
-## Real-data check, 2026-09-05
+## Known limitation
 
-Reproduce with `python -m tools.validate_wall_measurement_context`, which uses
-the existing local validator's saved connection, Assessment AA-92E59B43 and
-explicit development Alignment. It prints coordinates, tolerance-aware outside
-flags, statuses and KPI values. It performs no writes.
-
-52 profiles have Actual context; all 52 have empty display Actual segments.
-At the three representative stations there are already Actual intersections
-inside the Assessment U mask, but the existing elevation clip removes them.
-The new context retains these observations and diagnoses incompatible geometry.
-
-| Chainage m | Assessment U | Context U | Design crest U/Z | Design toe U/Z | Actual context Z |
-| ---: | --- | --- | --- | --- | --- |
-| 0.000 | 45.750–53.174 | 36.463–60.824 | 47.113 / 640.000 | 53.174 / 624.523 | 666.041–670.177 |
-| 77.553 | 55.396–72.447 | 37.743–80.097 | 55.396 / 644.700 | 72.447 / 615.412 | 672.519–674.673 |
-| 152.123 | 67.625–84.816 | 49.977–92.466 | 67.625 / 638.616 | 84.816 / 607.293 | 665.668–676.315 |
-
-Design upper berm starts lie outside the mask at U/Z 44.113/640.000,
-45.393/644.736 and 57.627/638.678 respectively. Crests/toes are inside or on
-the boundary within the named connection tolerance. Design overall angles are
-68.614°, 59.793° and 61.241°; upper widths are 3.000, 10.003 and 9.998 m.
-
-All Actual landmarks at these stations are `not_detected/incompatible_geometry`;
-their U/Z and outside flags are null, and paired KPIs are null. Actual elevations
-are tens of metres above the expected Design landmarks, outside the existing
-3 m locality tolerance. This pass removes artificial clipping loss but does not
-establish successful real-data detection or tune the detector to this dataset.
-
-Boundary-specific synthetic tests cover valid out-of-mask landmarks, dataset
-ends, gaps, remote components, immutable display clipping and placement, empty
-context behavior, named radius configuration and reversed Alignment results.
+Complex outer-boundary Actual geometry can contain more than one plausible
+physical transition. The conservative detector may leave those profiles
+low-confidence or N/A; raw diagnostic context must not be promoted to evaluated
+Actual geometry.

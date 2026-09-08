@@ -63,25 +63,24 @@ class SlopeForgeSplash(QSplashScreen):
     def drawContents(self, painter: QPainter) -> None:  # noqa: N802 - Qt override
         """Draw only compact corner metadata over the original splash artwork."""
         rect = self.rect()
-        margin = 10
 
         self._draw_overlay_text(
             painter,
-            QRect(margin, rect.height() - 28, 150, 18),
+            QRect(3, rect.height() - 18, 150, 18),
             f"version {APP_VERSION_DISPLAY}",
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             font=QFont("Segoe UI", 8),
         )
         self._draw_overlay_text(
             painter,
-            QRect(rect.width() - 250, rect.height() - 44, 240, 18),
+            QRect(rect.width() - 243, rect.height() - 36, 240, 18),
             APP_NAME,
             alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             font=QFont("Segoe UI", 9, QFont.Weight.Bold),
         )
         self._draw_overlay_text(
             painter,
-            QRect(rect.width() - 330, rect.height() - 25, 320, 16),
+            QRect(rect.width() - 323, rect.height() - 16, 320, 16),
             APP_COPYRIGHT,
             alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             font=QFont("Segoe UI", 8),

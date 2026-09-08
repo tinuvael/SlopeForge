@@ -6,6 +6,7 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.platform import set_windows_app_user_model_id
+from app.credential_store import CredentialStoreError, credential_runtime_smoke_test
 from app.qt import apply_application_icon
 from ui.application_theme import initialize_application_theme
 from ui.updater_window import SlopeForgeUpdaterWindow
@@ -44,7 +45,17 @@ def _smoke_test_requested(argv: list[str] | None = None) -> bool:
     return "--smoke-test" in (argv if argv is not None else sys.argv[1:])
 
 
+def _credential_smoke_test_requested(argv: list[str] | None = None) -> bool:
+    return "--credential-smoke-test" in (argv if argv is not None else sys.argv[1:])
+
+
 def main() -> int:
+    if _credential_smoke_test_requested():
+        try:
+            credential_runtime_smoke_test()
+        except CredentialStoreError:
+            return 1
+        return 0
     set_windows_app_user_model_id()
     app = QApplication(sys.argv)
     app.setApplicationName("SlopeForge Updater")

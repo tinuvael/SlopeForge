@@ -1,6 +1,6 @@
 # SlopeForge architecture
 
-SlopeForge is a Python 3.12 / PySide6 modular monolith backed by PostgreSQL,
+SlopeForge is a Python 3.14 / PySide6 modular monolith backed by PostgreSQL,
 SQLAlchemy 2.x, psycopg 3, and Alembic. Current code, schema, migrations, and
 tests take precedence over this overview.
 

@@ -4545,5 +4545,155 @@ Continue?</source><translation>Новый горизонт отличается 
         <source>Hole spacing, m</source>
         <translation>Шаг между скважинами, м</translation>
     </message>
+    <message><source>%1 is not configured for this Project.</source><translation>%1 не настроена для этого проекта.</translation></message>
+    <message><source>ACTUAL</source><translation>ФАКТ</translation></message>
+    <message><source>Active revision R%1 · %2 · %3 triangles</source><translation>Активная ревизия R%1 · %2 · треугольников: %3</translation></message>
+    <message><source>Calculate profiles</source><translation>Рассчитать профили</translation></message>
+    <message><source>Calculated %1 transverse profiles from the active Project surfaces.</source><translation>По активным поверхностям проекта рассчитано поперечных профилей: %1.</translation></message>
+    <message><source>Calculating transverse profiles…</source><translation>Расчёт поперечных профилей…</translation></message>
+    <message><source>Chainage %1 m</source><translation>Пикетаж %1 м</translation></message>
+    <message><source>DESIGN</source><translation>ПРОЕКТ</translation></message>
+    <message><source>Design crest</source><translation>Проектная бровка</translation></message>
+    <message><source>Design upper crest</source><translation>Верхняя проектная бровка</translation></message>
+    <message><source>Design semantics: COLOUR 2 = Face · COLOUR 5 = Berm · COLOUR 3 = Road</source><translation>Семантика проекта: COLOUR 2 = Откос · COLOUR 5 = Берма · COLOUR 3 = Дорога</translation></message>
+    <message><source>Design toe</source><translation>Проектная подошва</translation></message>
+    <message><source>Design lower toe</source><translation>Нижняя проектная подошва</translation></message>
+    <message><source>Actual coverage: %1 / %2 profiles · Select a profile to inspect</source><translation>Покрытие фактической съёмкой: %1 из %2 профилей · Выберите профиль для проверки</translation></message>
+    <message><source>No survey data in Design elevation range</source><translation>Нет данных съёмки в диапазоне отметок проекта</translation></message>
+    <message><source>Diagnostic local tangent (T) and wall-normal (N) unit vectors.</source><translation>Диагностические единичные векторы локальной касательной (T) и нормали к борту (N).</translation></message>
+    <message><source>Diagnostic mapping read from the active Design surface attributes.</source><translation>Диагностическое соответствие, прочитанное из атрибутов активной проектной поверхности.</translation></message>
+    <message><source>Direction details</source><translation>Параметры направления</translation></message>
+    <message><source>Distance along the crest used to estimate the local strike direction.</source><translation>Расстояние вдоль бровки, используемое для оценки локального направления простирания.</translation></message>
+    <message><source>Distance sampled on each side of the profile origin, normal to the wall.</source><translation>Расстояние выборки в каждую сторону от начала профиля по нормали к борту.</translation></message>
+    <message><source>No active dataset</source><translation>Нет активного набора данных</translation></message>
+    <message><source>No profile selected</source><translation>Профиль не выбран</translation></message>
+    <message><source>No profiles</source><translation>Профили отсутствуют</translation></message>
+    <message><source>Plan / transverse profiles</source><translation>План / поперечные профили</translation></message>
+    <message><source>Profile</source><translation>Профиль</translation></message>
+    <message><source>Profile %1 · Ch. %2 m</source><translation>Профиль %1 · пикетаж %2 м</translation></message>
+    <message><source>Profile %1 · Chainage %2 m</source><translation>Профиль %1 · пикетаж %2 м</translation></message>
+    <message><source>Profile half-width</source><translation>Полуширина профиля</translation></message>
+    <message><source>Profile spacing</source><translation>Шаг профилей</translation></message>
+    <message><source>Profiles</source><translation>Профили</translation></message>
+    <message><source>Ready to calculate.</source><translation>Готово к расчёту.</translation></message>
+    <message><source>Road</source><translation>Дорога</translation></message>
+    <message><source>Shared file storage is unavailable for this connection. Surface metadata can be viewed, but wall conformance cannot be calculated.</source><translation>Общее файловое хранилище недоступно для этого подключения. Метаданные поверхности доступны для просмотра, но расчёт соответствия борта невозможен.</translation></message>
+    <message><source>Strike window</source><translation>Окно простирания</translation></message>
+    <message><source>Transverse section</source><translation>Поперечное сечение</translation></message>
+    <message><source>Unknown</source><translation>Неизвестно</translation></message>
+    <message><source>Wall conformance</source><translation>Соответствие борта</translation></message>
+    <message><source>Wall conformance diagnostic</source><translation>Диагностика соответствия борта</translation></message>
+    <message><source>Active Design revision R%1</source><translation>Активная ревизия проекта R%1</translation></message>
+    <message><source>Design semantics: %1</source><translation>Семантика проекта: %1</translation></message>
+    <message><source>Design semantics: default mapping</source><translation>Семантика проекта: карта по умолчанию</translation></message>
+    <message><source>Design semantics: unavailable</source><translation>Семантика проекта: недоступна</translation></message>
+    <message><source>Design surface semantics</source><translation>Семантика проектной поверхности</translation></message>
+    <message><source>Design surface semantics saved. Calculate profiles again.</source><translation>Семантика проектной поверхности сохранена. Рассчитайте профили повторно.</translation></message>
+    <message><source>Distance along the design crest on each side of the profile used to estimate the local wall strike. Larger values smooth local curvature.</source><translation>Расстояние вдоль проектной бровки в каждую сторону от профиля для оценки локального простирания борта. Большие значения сильнее сглаживают локальную кривизну.</translation></message>
+    <message><source>Edit design semantics…</source><translation>Изменить семантику проекта…</translation></message>
+    <message><source>Face: %1 · Berm: %2 · Road: %3 · Ignore: %4 · Unknown: %5</source><translation>Откос: %1 · Берма: %2 · Дорога: %3 · Игнорировать: %4 · Неизвестно: %5</translation></message>
+    <message><source>Map at least one source value to Face before saving.</source><translation>Перед сохранением назначьте хотя бы одно исходное значение роли «Откос».</translation></message>
+    <message><source>No Berm or Road platform geometry is mapped.</source><translation>Геометрия площадок «Берма» или «Дорога» не назначена.</translation></message>
+    <message><source>Selected profile</source><translation>Выбранный профиль</translation></message>
+    <message><source>Some Design triangles remain unknown.</source><translation>Часть треугольников проектной поверхности остаётся нераспознанной.</translation></message>
+    <message><source>Source attribute</source><translation>Исходный атрибут</translation></message>
+    <message><source>Source value</source><translation>Исходное значение</translation></message>
+    <message><source>Strike smoothing radius</source><translation>Радиус сглаживания простирания</translation></message>
+    <message><source>Triangles</source><translation>Треугольники</translation></message>
+    <message><source>U (m, + toward toe)</source><translation>U (м, + к подошве)</translation></message>
+    <message><source>%1 · Height %2 m · Angle %3° · range %4–%5°</source><translation>%1 · Высота %2 м · Угол %3° · диапазон %4–%5°</translation></message>
+    <message><source>%1 · Width %2 m · range %3–%4 m</source><translation>%1 · Ширина %2 м · диапазон %3–%4 м</translation></message>
+    <message><source>ACTUAL SURVEY</source><translation>ФАКТИЧЕСКАЯ СЪЁМКА</translation></message>
+    <message><source>All actual profiles · Select a profile to inspect</source><translation>Все фактические профили · Выберите профиль для просмотра</translation></message>
+    <message><source>All profiles</source><translation>Все профили</translation></message>
+    <message><source>Overview · All actual profiles</source><translation>Обзор · Все фактические профили</translation></message>
+    <message><source>Profiles used: %1</source><translation>Использовано профилей: %1</translation></message>
+    <message><source>REPRESENTATIVE DESIGN</source><translation>РЕПРЕЗЕНТАТИВНЫЙ ПРОЕКТ</translation></message>
+    <message><source>Representative Design Profile</source><translation>Репрезентативный проектный профиль</translation></message>
+    <message><source>U (m, + toward wall/toe)</source><translation>U (м, + в сторону борта/подошвы)</translation></message>
+    <message><source>Variant %1 · %2 · %3 profiles</source><translation>Вариант %1 · %2 · профилей: %3</translation></message>
+    <message><source>dZ (m, local Design crest = 0)</source><translation>dZ (м, локальная проектная бровка = 0)</translation></message>
+    <message><source>%1 context</source><translation>контекст %1</translation></message>
+    <message><source>%1 profiles</source><translation>%1 профилей</translation></message>
+    <message><source>%1 skipped</source><translation>пропущено: %1</translation></message>
+    <message><source>%1 · %2 · %3 profiles</source><translation>%1 · %2 · %3 профилей</translation></message>
+    <message><source>%1% coverage</source><translation>покрытие %1%</translation></message>
+    <message><source>%1/%2</source><translation>%1/%2</translation></message>
+    <message><source>Actual lower toe</source><translation>Фактическая нижняя подошва</translation></message>
+    <message><source>Actual upper berm start</source><translation>Начало фактической верхней бермы</translation></message>
+    <message><source>Actual upper crest</source><translation>Фактическая верхняя бровка</translation></message>
+    <message><source>Actual upper crest · elevation fallback</source><translation>Фактическая верхняя бровка · резерв по отметке</translation></message>
+    <message><source>Actual upper crest · face-run onset</source><translation>Фактическая верхняя бровка · начало участка откоса</translation></message>
+    <message><source>Additional geometry metrics</source><translation>Дополнительные геометрические показатели</translation></message>
+    <message><source>Angle</source><translation>Угол</translation></message>
+    <message><source>Angle shortfall</source><translation>Недобор угла</translation></message>
+    <message><source>Applied from Wall Conformance Q2</source><translation>Применено из Q2 «Соответствие борта»</translation></message>
+    <message><source>Apply</source><translation>Применить</translation></message>
+    <message><source>Berm deficit</source><translation>Недобор ширины бермы</translation></message>
+    <message><source>Ch. %1 m · %2 · %3</source><translation>Пикетаж %1 м · %2 · %3</translation></message>
+    <message><source>Click two points to measure</source><translation>Щёлкните две точки для измерения</translation></message>
+    <message><source>Contour RMS</source><translation>RMS отклонения контура</translation></message>
+    <message><source>Define a Wall Alignment to calculate profiles.</source><translation>Задайте ось борта для расчёта профилей.</translation></message>
+    <message><source>Design semantics · %1</source><translation>Семантика проекта · %1</translation></message>
+    <message><source>Design semantics · default mapping</source><translation>Семантика проекта · соответствие по умолчанию</translation></message>
+    <message><source>Deviation</source><translation>Отклонение</translation></message>
+    <message><source>Draw Wall Alignment: click vertices, then press Enter or double-click to finish. Esc cancels.</source><translation>Начертите ось борта: щёлкайте вершины, затем нажмите Enter или дважды щёлкните для завершения. Esc отменяет действие.</translation></message>
+    <message><source>Edit Wall Alignment</source><translation>Изменить ось борта</translation></message>
+    <message><source>Existing value will be kept</source><translation>Текущее значение будет сохранено</translation></message>
+    <message><source>H / A</source><translation>H / A</translation></message>
+    <message><source>Insufficient data</source><translation>Недостаточно данных</translation></message>
+    <message><source>Lower toe</source><translation>Нижняя подошва</translation></message>
+    <message><source>Manual measure</source><translation>Ручное измерение</translation></message>
+    <message><source>Maximum backbreak</source><translation>Максимальное разрушение бровки</translation></message>
+    <message><source>Mean %1 · %2</source><translation>Среднее %1 · %2</translation></message>
+    <message><source>Mean backbreak</source><translation>Среднее разрушение бровки</translation></message>
+    <message><source>Mean overbreak</source><translation>Средний перебор</translation></message>
+    <message><source>Mean underbreak</source><translation>Средний недобор</translation></message>
+    <message><source>Measure</source><translation>Измерить</translation></message>
+    <message><source>N/A</source><translation>Н/Д</translation></message>
+    <message><source>N/A · Pit boundary</source><translation>Н/Д · граница карьера</translation></message>
+    <message><source>No compatible Actual wall section</source><translation>Нет совместимого фактического сечения борта</translation></message>
+    <message><source>No compatible Actual wall sections were found.
+There are no Wall Conformance measurements to apply.</source><translation>Совместимые фактические сечения борта не найдены.
+Нет измерений «Соответствие борта» для применения.</translation></message>
+    <message><source>No context</source><translation>Нет контекста</translation></message>
+    <message><source>No upstream context</source><translation>Нет вышележащего контекста</translation></message>
+    <message><source>Overall angle</source><translation>Общий угол</translation></message>
+    <message><source>Profile %1</source><translation>Профиль %1</translation></message>
+    <message><source>Profile skipped</source><translation>Профиль пропущен</translation></message>
+    <message><source>Profile spacing changed. Calculate profiles again.</source><translation>Шаг профилей изменён. Рассчитайте профили повторно.</translation></message>
+    <message><source>Q2 %1</source><translation>Q2 %1</translation></message>
+    <message><source>R%1 · %2 · %3 triangles</source><translation>R%1 · %2 · %3 треугольников</translation></message>
+    <message><source>Range %1 … %2</source><translation>Диапазон %1 … %2</translation></message>
+    <message><source>Range %1–%2 m</source><translation>Диапазон %1–%2 м</translation></message>
+    <message><source>Representative Design</source><translation>Репрезентативный проект</translation></message>
+    <message><source>Set Wall Alignment</source><translation>Задать ось борта</translation></message>
+    <message><source>Shared file storage is unavailable for this connection.</source><translation>Общее файловое хранилище недоступно для этого подключения.</translation></message>
+    <message><source>Skipped station</source><translation>Пропущенная станция</translation></message>
+    <message><source>The available Geometry inputs were sourced from Wall Conformance Q2 measurements.</source><translation>Доступные геометрические входные данные получены из измерений Q2 «Соответствие борта».</translation></message>
+    <message><source>Toe U</source><translation>Подошва U</translation></message>
+    <message><source>U / Z</source><translation>U / Z</translation></message>
+    <message><source>U / dZ (m)</source><translation>U / dZ (м)</translation></message>
+    <message><source>Upper berm</source><translation>Верхняя берма</translation></message>
+    <message><source>Upstream %1</source><translation>Выше по профилю %1</translation></message>
+    <message><source>Use Wall Conformance measurements</source><translation>Использовать измерения «Соответствие борта»</translation></message>
+    <message><source>Use Wall Conformance measurements?</source><translation>Использовать измерения «Соответствие борта»?</translation></message>
+    <message><source>Variant</source><translation>Вариант</translation></message>
+    <message><source>Variant %1 · %2 profiles · %3</source><translation>Вариант %1 · %2 профилей · %3</translation></message>
+    <message><source>W</source><translation>W</translation></message>
+    <message><source>Wall Alignment</source><translation>Ось борта</translation></message>
+    <message><source>Wall Alignment is not defined.</source><translation>Ось борта не задана.</translation></message>
+    <message><source>Wall Alignment · %1 vertices · %2 m</source><translation>Ось борта · %1 вершин · %2 м</translation></message>
+    <message><source>Wall Alignment · not set</source><translation>Ось борта · не задана</translation></message>
+    <message><source>Wall Conformance</source><translation>Соответствие борта</translation></message>
+    <message><source>Wall Conformance Q2</source><translation>Соответствие борта Q2</translation></message>
+    <message><source>Wall Conformance Q2 measurements populate the Geometry inputs after confirmation.</source><translation>После подтверждения измерения Q2 «Соответствие борта» заполняют геометрические входные данные.</translation></message>
+    <message><source>Wall Conformance has no valid measurements for this Assessment Area.</source><translation>Для этого участка оценки нет действительных измерений «Соответствие борта».</translation></message>
+    <message><source>Wall Conformance is not available for the active geometry revision.</source><translation>«Соответствие борта» недоступно для активной ревизии геометрии.</translation></message>
+    <message><source>Wall Conformance is not available for this Assessment Area.</source><translation>«Соответствие борта» недоступно для этого участка оценки.</translation></message>
+    <message><source>Wall Conformance measurements are only available for the active geometry revision.</source><translation>Измерения «Соответствие борта» доступны только для активной ревизии геометрии.</translation></message>
+    <message><source>Wall Conformance measurements unavailable</source><translation>Измерения «Соответствие борта» недоступны</translation></message>
+    <message><source>Wall Conformance unavailable</source><translation>«Соответствие борта» недоступно</translation></message>
+    <message><source>context</source><translation>контекст</translation></message>
 </context>
 </TS>

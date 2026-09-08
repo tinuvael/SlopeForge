@@ -321,19 +321,25 @@ class AssessmentAreaPage(QWidget):
         inputs.addWidget(self.face_condition_input_card)
         self.geometry_input_card, self.geometry_section_title = section_card(
             "Geometry", self.evaluation_editor.geometry_editors.values(), "geometry")
+        self.evaluation_editor.wall_conformance_import_widget.setParent(self.geometry_input_card)
+        self.geometry_input_card.layout().insertWidget(
+            1, self.evaluation_editor.wall_conformance_import_widget
+        )
+        self.evaluation_editor.additional_geometry_widget.setParent(self.geometry_input_card)
+        self.geometry_input_card.layout().addWidget(
+            self.evaluation_editor.additional_geometry_widget
+        )
         inputs.addWidget(self.geometry_input_card)
-        self.evaluation_editor.measured_wall_widget.setParent(self.assessment_inputs)
-        inputs.addWidget(self.evaluation_editor.measured_wall_widget)
-        self.evaluation_editor.measured_wall_widget.show()
         inputs.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.assessment_splitter.addWidget(self.assessment_inputs)
         self.assessment_right = QWidget()
         self.assessment_right.setMinimumWidth(360)
         self.assessment_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         right = QVBoxLayout(self.assessment_right)
-        right.setContentsMargins(0, 0, 0, 0)
+        right.setContentsMargins(0, 2, 0, 0)
         right.setSpacing(7)
         matrix_context_card = QFrame()
+        self.assessment_basis_card = matrix_context_card
         matrix_context_card.setObjectName("CriterionCard")
         basis = QVBoxLayout(matrix_context_card)
         basis.setContentsMargins(10, 6, 10, 6)
@@ -391,6 +397,65 @@ class AssessmentAreaPage(QWidget):
         old_history.deleteLater()
         self.history = EntityHistoryWidget()
         self.history.entryActivated.connect(self._open_history_entry)
+
+    def configure_wall_conformance_import(self, wall_conformance_tab):
+        """Connect Geometry's explicit import to the active-revision diagnostic path."""
+        self.wall_conformance_tab = wall_conformance_tab
+        self.evaluation_editor.set_wall_conformance_summary_provider(
+            self._current_wall_conformance_result,
+            self._wall_conformance_import_available,
+        )
+        changed = getattr(wall_conformance_tab, "wall_conformance_state_changed", None)
+        if changed is not None:
+            changed.connect(self.evaluation_editor.refresh_wall_conformance_import_availability)
+
+    def _wall_conformance_import_available(self):
+        active_revision = self.area.active_geometry_revision()
+        if self.read_only:
+            return False, tr("Archived Assessment Areas and Viewer accounts are read-only.")
+        if self.evaluation_editor.draft.assessment_area_geometry_revision_id != active_revision.id:
+            return False, tr("Wall Conformance measurements are only available for the active geometry revision.")
+        tab = getattr(self, "wall_conformance_tab", None)
+        if tab is None or getattr(getattr(tab, "geometry_revision", None), "id", None) != active_revision.id:
+            return False, tr("Wall Conformance is not available for the active geometry revision.")
+        try:
+            alignment = self.controller.load_wall_alignment(self.area, active_revision)
+            if alignment is None:
+                return False, tr("Wall Alignment is not defined.")
+            design, actual = tab.service.current_datasets(self.controller.site_id)
+        except Exception as exc:
+            return False, str(exc)
+        if not bool(getattr(tab.service.surface_service, "storage_available", True)):
+            return False, tr("Shared file storage is unavailable for this connection.")
+        if design is None or actual is None:
+            missing = tr("Design surface") if design is None else tr("Actual survey")
+            return False, tr("%1 is not configured for this Project.").replace("%1", missing)
+        return True, ""
+
+    def _current_wall_conformance_result(self):
+        available, reason = self._wall_conformance_import_available()
+        if not available:
+            raise ValueError(reason)
+        active_revision = self.area.active_geometry_revision()
+        tab = self.wall_conformance_tab
+        alignment = self.controller.load_wall_alignment(self.area, active_revision)
+        current_result = getattr(tab, "result", None)
+        design_dataset, actual_dataset = tab.service.current_datasets(self.controller.site_id)
+        if (
+            current_result is not None
+            and getattr(current_result, "wall_alignment", None) == alignment
+            and getattr(getattr(current_result, "design_dataset", None), "logical_id", None)
+            == getattr(design_dataset, "logical_id", None)
+            and getattr(getattr(current_result, "actual_dataset", None), "logical_id", None)
+            == getattr(actual_dataset, "logical_id", None)
+        ):
+            return current_result
+        return tab.service.calculate_current(
+            self.controller.site_id,
+            active_revision.final_geometry_frozen,
+            alignment,
+            tab._settings(),
+        )
 
     def _sidebar(self, body):
         right = QVBoxLayout()

@@ -38,8 +38,9 @@ from application.services.assessment_areas import AssessmentAreaService
 from application.state.assessment_domain_state import AssessmentDomainState
 from domain.assessment.geometry import (AssessmentBoundary, ProjectLineAnchor, ProjectLineSpan,
     SpatialPoint, StraightConnector, derive_elevation_summary)
-from domain.geometry.types import DatamineLine, DataminePoint
+from domain.geometry.types import DatamineLine, DataminePoint, PlanPoint
 from domain.project.project_lines import ProjectLinesDataset
+from domain.wall_conformance import WallAlignment
 
 
 @pytest.fixture(scope="session")
@@ -130,6 +131,106 @@ def test_project_area_context_real_postgres_path(session_factory):
         (item.domain_id, item.assessment_area_id) for item in result
     }
     assert all(len(item.ring) == 4 for item in result)
+
+
+def test_wall_alignment_is_revision_owned_and_survives_session_reload(
+        session_factory, assessment_context):
+    state = AssessmentDomainState()
+    area = AssessmentAreaService(state).create_area(
+        name="Wall alignment area", assessment_date=date.today(),
+        boundary=_connector_boundary(0),
+    )
+    writes = SqlAlchemyAssessmentWrites(session_factory)
+    version = writes.persist_assessment_area_geometry(
+        assessment_context.domain_id, 0, area
+    ).new_version
+    first_revision = area.active_geometry_revision()
+    initial = WallAlignment((PlanPoint(0.0, 0.0), PlanPoint(0.0, 10.0)))
+    version = writes.save_wall_alignment(
+        assessment_context.domain_id, version, area.id, first_revision.id, initial
+    ).new_version
+
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, first_revision.id
+    ) == initial
+
+    AssessmentAreaService(state).revise_area(
+        area, boundary=_connector_boundary(20), change_reason="Boundary updated"
+    )
+    version = writes.persist_assessment_area_geometry(
+        assessment_context.domain_id, version, area
+    ).new_version
+    second_revision = area.active_geometry_revision()
+    assert second_revision.id != first_revision.id
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, first_revision.id
+    ) == initial
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, second_revision.id
+    ) == initial
+
+    replacement = WallAlignment((PlanPoint(1.0, 0.0), PlanPoint(1.0, 12.0)))
+    version = writes.save_wall_alignment(
+        assessment_context.domain_id, version, area.id, second_revision.id, replacement
+    ).new_version
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, first_revision.id
+    ) == initial
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, second_revision.id
+    ) == replacement
+    with pytest.raises(PermissionError, match="Historical"):
+        writes.save_wall_alignment(
+            assessment_context.domain_id, version, area.id, first_revision.id, replacement
+        )
+
+    version = writes.clear_wall_alignment(
+        assessment_context.domain_id, version, area.id, second_revision.id
+    ).new_version
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, second_revision.id
+    ) is None
+    assert writes.load_wall_alignment(
+        assessment_context.domain_id, area.id, first_revision.id
+    ) == initial
+
+    with session_factory.begin() as session:
+        old_geometry = session.scalar(select(orm.AssessmentAreaGeometryRevision).join(
+            orm.AssessmentArea
+        ).where(
+            orm.AssessmentArea.domain_id == assessment_context.domain_id,
+            orm.AssessmentAreaGeometryRevision.logical_id == first_revision.id,
+        ))
+        session.delete(old_geometry)
+    with session_factory() as session:
+        assert session.get(
+            orm.AssessmentAreaWallAlignment,
+            old_geometry.id,
+        ) is None
+
+
+def test_invalid_persisted_wall_alignment_fails_clearly(
+        session_factory, assessment_context):
+    state = AssessmentDomainState()
+    area = AssessmentAreaService(state).create_area(
+        name="Invalid alignment area", assessment_date=date.today(),
+        boundary=_connector_boundary(40),
+    )
+    writes = SqlAlchemyAssessmentWrites(session_factory)
+    version = writes.persist_assessment_area_geometry(
+        assessment_context.domain_id, 0, area
+    ).new_version
+    revision = area.active_geometry_revision()
+    writes.save_wall_alignment(
+        assessment_context.domain_id, version, area.id, revision.id,
+        WallAlignment((PlanPoint(0.0, 0.0), PlanPoint(0.0, 10.0))),
+    )
+    with session_factory.begin() as session:
+        row = session.scalar(select(orm.AssessmentAreaWallAlignment))
+        row.points_json = [{"x": 0.0}]
+
+    with pytest.raises(ValueError, match="Persisted Wall Alignment.*invalid"):
+        writes.load_wall_alignment(assessment_context.domain_id, area.id, revision.id)
 
 
 def semantic(state):

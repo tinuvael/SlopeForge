@@ -66,5 +66,8 @@ class ProjectSurfaceDataset(Base):
     )
     source_format: Mapped[str] = mapped_column(String(20), nullable=False)
     source_files_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    semantic_mapping_json: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     vertex_count: Mapped[int] = mapped_column(Integer, nullable=False)
     triangle_count: Mapped[int] = mapped_column(Integer, nullable=False)

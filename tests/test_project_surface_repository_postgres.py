@@ -101,6 +101,24 @@ def test_latest_revision_is_implicitly_current_per_project_and_kind(factory) -> 
         assert design.revision_number == 1
         assert repository.get_current(site_id, "actual").logical_id == second.logical_id
         assert repository.get_current(site_id, "design").logical_id == design.logical_id
+        mapping = {
+            "attribute_name": "COLOUR",
+            "assignments": [{"value": 10, "role": "face"}],
+        }
+        saved = repository.update_semantic_mapping(site_id, design.logical_id, mapping)
+        assert saved.semantic_mapping_json == mapping
+        inherited = repository.add_dataset(
+            site_id,
+            logical_id="PG-00000004",
+            dataset_kind="design",
+            imported_at=datetime.now(timezone.utc),
+            imported_by_user_id=None,
+            source_format="dxf",
+            source_files=[_source_file("design_2.dxf")],
+            vertex_count=3,
+            triangle_count=1,
+        )
+        assert inherited.semantic_mapping_json == mapping
         assert [row.revision_number for row in repository.list_for_site(site_id, dataset_kind="actual")] == [2, 1]
     finally:
         with factory.begin() as session:

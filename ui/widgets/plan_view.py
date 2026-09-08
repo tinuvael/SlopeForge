@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QPainter
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QPainter, QPen
+from PySide6.QtWidgets import QGraphicsView, QToolTip
 from domain.geometry.types import PlanPoint
 
 
@@ -20,6 +20,103 @@ class PlanView(QGraphicsView):
         self._drawing_mode = False
         self._middle_panning = False
         self._pan_view_position = None
+        self._direction_annotation = None
+        self._skipped_annotations = ()
+
+    def set_direction_annotation(self, scene_point, direction_xy, color: QColor | None = None):
+        """Render a selected-profile +U marker in viewport pixels, not scene space."""
+        self._direction_annotation = (
+            (scene_point, direction_xy, QColor(color))
+            if scene_point is not None and direction_xy is not None
+            else None
+        )
+        self.viewport().update()
+
+    def set_skipped_annotations(self, annotations) -> None:
+        """Render skipped-station marks in viewport space, outside scene bounds."""
+        self._skipped_annotations = tuple(annotations)
+        self.viewport().update()
+
+    def direction_annotation_screen_points(self):
+        """Return the cosmetic arrow endpoints in viewport pixels for drawing/tests."""
+        if self._direction_annotation is None:
+            return None
+        scene_point, (nx, ny), _color = self._direction_annotation
+        start = self.mapFromScene(scene_point)
+        # Domain y is inverted in the plan scene.  Project one physical metre
+        # through the current view transform to retain the actual +U heading.
+        reference = self.mapFromScene(QPointF(scene_point.x() + nx, scene_point.y() - ny))
+        dx, dy = reference.x() - start.x(), reference.y() - start.y()
+        length = max((dx * dx + dy * dy) ** 0.5, 1e-9)
+        scale = 22.0 / length
+        return (
+            QPointF(start.x(), start.y()),
+            QPointF(start.x() + dx * scale, start.y() + dy * scale),
+        )
+
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        self._draw_skipped_annotations(painter)
+        if self._direction_annotation is None:
+            return
+        _scene_point, _direction_xy, color = self._direction_annotation
+        start, end = self.direction_annotation_screen_points()
+        dx, dy = end.x() - start.x(), end.y() - start.y()
+        length = max((dx * dx + dy * dy) ** 0.5, 1e-9)
+        normal_x, normal_y = -dy / length, dx / length
+        painter.save()
+        painter.resetTransform()
+        pen = QPen(color, 2.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.drawLine(start, end)
+        head = 6.0
+        painter.drawLine(
+            end,
+            QPointF(
+                end.x() - dx / length * head + normal_x * head * 0.55,
+                end.y() - dy / length * head + normal_y * head * 0.55,
+            ),
+        )
+        painter.drawLine(
+            end,
+            QPointF(
+                end.x() - dx / length * head - normal_x * head * 0.55,
+                end.y() - dy / length * head - normal_y * head * 0.55,
+            ),
+        )
+        painter.drawText(end + QPointF(5, -4), "+U")
+        painter.restore()
+
+    def _draw_skipped_annotations(self, painter) -> None:
+        if not self._skipped_annotations:
+            return
+        painter.save()
+        painter.resetTransform()
+        for scene_point, _tooltip, color in self._skipped_annotations:
+            point = self.mapFromScene(scene_point)
+            arm = 5.0
+            pen = QPen(color, 2.0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawLine(
+                QPointF(point.x() - arm, point.y() - arm),
+                QPointF(point.x() + arm, point.y() + arm),
+            )
+            painter.drawLine(
+                QPointF(point.x() - arm, point.y() + arm),
+                QPointF(point.x() + arm, point.y() - arm),
+            )
+        painter.restore()
+
+    def _update_skipped_annotation_tooltip(self, event) -> None:
+        cursor = event.position().toPoint()
+        for scene_point, tooltip, _color in self._skipped_annotations:
+            point = self.mapFromScene(scene_point)
+            if (point - cursor).manhattanLength() <= 9:
+                QToolTip.showText(event.globalPosition().toPoint(), tooltip, self.viewport())
+                return
+        QToolTip.hideText()
 
     def set_polygon_drawing_mode(self, enabled: bool):
         self._drawing_mode = enabled
@@ -63,6 +160,7 @@ class PlanView(QGraphicsView):
         event.accept()
 
     def mouseMoveEvent(self, event):
+        self._update_skipped_annotation_tooltip(event)
         if self._middle_panning and self._pan_view_position is not None:
             current = event.position().toPoint()
             delta = current - self._pan_view_position

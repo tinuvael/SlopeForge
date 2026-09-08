@@ -146,7 +146,10 @@ class MainWindow(QMainWindow):
     def open_area_from_tree(self,area_id,domain_id,site_id,domain_name):
         if not self._guard_leave(): return False
         from ui.pages.assessment_area_page import AssessmentAreaPage
-        try: page=AssessmentAreaPage(self.context,domain_id,domain_name,area_id)
+        from ui.pages.wall_conformance_install import install_wall_conformance_tab
+        try:
+            page=AssessmentAreaPage(self.context,domain_id,domain_name,area_id)
+            install_wall_conformance_tab(page)
         except Exception as exc:
             QMessageBox.critical(self,tr("Assessment Area"),f"Could not open the assessment area. The current page was preserved.\n\n{domain_message(str(exc))}"); return False
         page.edit_boundaries_requested.connect(self._edit_area_boundaries)

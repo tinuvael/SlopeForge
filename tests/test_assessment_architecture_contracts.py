@@ -50,7 +50,8 @@ def test_every_focused_assessment_write_requires_expected_version():
     methods = inspect.getmembers(AssessmentWrites, inspect.isfunction)
     assert methods
     for name, method in methods:
-        if name.startswith("_"): continue
+        if name.startswith("_") or name.startswith("load_"):
+            continue
         parameters = inspect.signature(method).parameters
         assert "expected_version" in parameters, name
         assert parameters["expected_version"].default is inspect.Parameter.empty, name

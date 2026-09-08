@@ -47,6 +47,20 @@ class ProjectSurfaceDatasetRepository:
                     ProjectSurfaceDataset.dataset_kind == dataset_kind,
                 )
             )
+            inherited_mapping = None
+            if dataset_kind == "design":
+                previous = session.scalar(
+                    select(ProjectSurfaceDataset)
+                    .where(
+                        ProjectSurfaceDataset.site_id == site_id,
+                        ProjectSurfaceDataset.dataset_kind == "design",
+                    )
+                    .order_by(ProjectSurfaceDataset.revision_number.desc())
+                    .limit(1)
+                )
+                inherited_mapping = (
+                    None if previous is None else previous.semantic_mapping_json
+                )
             row = ProjectSurfaceDataset(
                 site_id=site_id,
                 logical_id=logical_id,
@@ -58,6 +72,7 @@ class ProjectSurfaceDatasetRepository:
                 source_files_json=source_files,
                 vertex_count=int(vertex_count),
                 triangle_count=int(triangle_count),
+                semantic_mapping_json=inherited_mapping,
             )
             session.add(row)
             session.flush()
@@ -117,3 +132,24 @@ class ProjectSurfaceDatasetRepository:
             if row is None:
                 raise ProjectSurfaceDatasetNotFoundError(str(row_id))
             return row
+
+    def update_semantic_mapping(
+        self, site_id: int, logical_id: str, mapping: dict[str, object]
+    ) -> ProjectSurfaceDataset:
+        with self._session_factory.begin() as session:
+            row = session.scalar(
+                select(ProjectSurfaceDataset)
+                .where(
+                    ProjectSurfaceDataset.site_id == site_id,
+                    ProjectSurfaceDataset.logical_id == logical_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ProjectSurfaceDatasetNotFoundError(logical_id)
+            if row.dataset_kind != "design":
+                raise ValueError("Surface semantics belong only to Design datasets")
+            row.semantic_mapping_json = mapping
+            session.flush()
+            row_id = row.id
+        return self._get_row(row_id)

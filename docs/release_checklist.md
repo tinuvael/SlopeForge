@@ -24,9 +24,9 @@ Release 1.0 version sanity:
 - a clean database upgraded to head stores revision `1` and matches current ORM metadata;
 - former pre-1.0 development databases are recreated rather than stamped.
 
-## Windows / Python 3.12
+## Windows / Python 3.14
 
-- Launch on the supported Windows/Python 3.12 environment.
+- Launch on the supported Windows/Python 3.14 environment.
 - Confirm login/startup succeeds without Qt lifecycle warnings/crashes.
 - Repeat navigation Project → Domain → Block → Assessment Area → Contour many times and confirm no unbounded stacked-page growth or recursive navigation warnings.
 - Close/restart and confirm persisted data is reconstructed correctly.

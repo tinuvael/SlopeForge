@@ -32,7 +32,7 @@ Available release artifacts include a portable ZIP and Windows installer. Postgr
 
 ## Run from source
 
-Use Python 3.12 and a PostgreSQL database. See **[Database setup](docs/database_setup.md)** for connection configuration and production upgrade guidance.
+Use Python 3.14 and a PostgreSQL database. See **[Database setup](docs/database_setup.md)** for connection configuration and production upgrade guidance.
 
 ```bash
 python -m pip install -r requirements.txt

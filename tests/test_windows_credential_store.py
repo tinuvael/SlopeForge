@@ -5,6 +5,7 @@ import pytest
 from app.credential_store import (
     CredentialStoreError,
     WindowsCredentialStore,
+    credential_runtime_smoke_test,
     credential_target,
 )
 
@@ -43,7 +44,7 @@ class FakeWin32Cred:
 
 def test_windows_credential_write_passes_unicode_blob_and_round_trips(monkeypatch):
     fake = FakeWin32Cred()
-    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(lambda: fake))
+    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(lambda target: fake))
     store = WindowsCredentialStore()
 
     store.write("profile-123", "postgres", "p@ss:/word")
@@ -65,7 +66,48 @@ def test_windows_credential_error_exposes_safe_windows_code(monkeypatch):
             raise exc
 
     fake = FailingWin32Cred()
-    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(lambda: fake))
+    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(lambda target: fake))
 
     with pytest.raises(CredentialStoreError, match=r"Windows error 1312"):
         WindowsCredentialStore().write("profile-123", "postgres", "secret")
+
+
+def test_windows_credential_read_error_reports_safe_runtime_context(monkeypatch):
+    class FailingWin32Cred(FakeWin32Cred):
+        def CredRead(self, target, credential_type, flags):
+            exc = RuntimeError("credential API failed")
+            exc.winerror = 126
+            raise exc
+
+    fake = FailingWin32Cred()
+    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(lambda target: fake))
+
+    with pytest.raises(CredentialStoreError) as raised:
+        WindowsCredentialStore().read("profile-123")
+
+    message = str(raised.value)
+    assert "exception: RuntimeError" in message
+    assert "Windows error 126" in message
+    assert "credential target: SlopeForge/PostgreSQL/profile-123" in message
+    assert "credential read: no" in message
+    assert "frozen:" in message
+    assert "sys.executable:" in message
+    assert "win32cred import: yes" in message
+    assert "credential API failed" not in message
+
+
+def test_credential_runtime_smoke_test_round_trips_and_removes_temporary_credential(monkeypatch):
+    fake = FakeWin32Cred()
+    targets = []
+
+    def module(target):
+        targets.append(target)
+        return fake
+
+    monkeypatch.setattr(WindowsCredentialStore, "_module", staticmethod(module))
+
+    credential_runtime_smoke_test()
+
+    assert len(targets) == 3
+    assert all(target.startswith("SlopeForge/PostgreSQL/runtime-smoke-") for target in targets)
+    assert fake.value is None

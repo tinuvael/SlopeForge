@@ -162,28 +162,43 @@ class BlockPage(QWidget):
         self.overview_stack_widget = QWidget()
         self.overview_stack_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Expanding,
         )
         overview_stack = QVBoxLayout(self.overview_stack_widget)
         overview_stack.setContentsMargins(0, 0, 0, 0)
         overview_stack.setSpacing(8)
-        overview_stack.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.general_info = OverviewKeyValueCard("General information")
-        self.related_areas = BlockRelatedEntityList("Related assessment areas")
+        self.general_info.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.related_areas = BlockRelatedEntityList(
+            "Related assessment areas",
+            expand_viewport=True,
+        )
         self.related_areas.entity_activated.connect(self._preview_related_area)
         self.related_areas.entity_action_requested.connect(self._open_related_area)
-        self.notes = BlockNotesCard("Notes")
+        self.notes = BlockNotesCard("Notes", expand_editor=True)
         self.notes.save_requested.connect(self._autosave_comment)
-        overview_stack.addWidget(self.general_info)
-        overview_stack.addWidget(self.related_areas)
-        overview_stack.addWidget(self.notes)
-        self.geometry_card = BlockGeometryCard("Plan / geometry", action_label="Reimport")
+        # On taller displays the metadata column shares the plan's row height:
+        # the relationship viewport gets the larger portion so an extra area is
+        # visible, while General information and Notes remain balanced.
+        overview_stack.addWidget(self.general_info, 1)
+        overview_stack.addWidget(self.related_areas, 2)
+        overview_stack.addWidget(self.notes, 1)
+        self.geometry_card = BlockGeometryCard(
+            "Plan / geometry",
+            action_label="Reimport",
+            expand_horizontally=True,
+        )
         self.geometry_card.action_requested.connect(self._reimport_current_geometry)
         self.geometry_card.plan.view.escape_requested.connect(self._clear_related_area_preview)
         self._geometry_viewport = self.geometry_card.plan.view.viewport()
         self._geometry_viewport.installEventFilter(self)
-        top.addWidget(self.overview_stack_widget, 1)
-        top.addWidget(self.geometry_card, 0)
+        # Keep metadata compact while letting the plan use the larger share of
+        # the available Overview width on wide engineering desktops.
+        top.addWidget(self.overview_stack_widget, 4)
+        top.addWidget(self.geometry_card, 6)
         overview_layout.addLayout(top)
 
         self.engineering_summary = EngineeringSummaryCard()

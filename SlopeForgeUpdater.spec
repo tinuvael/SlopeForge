@@ -2,6 +2,14 @@
 
 from pathlib import Path
 
+# Fail the release build before Analysis if the interpreter selected by the
+# Windows build does not have a usable pywin32 Credential Manager runtime.
+# The application imports this dynamically, so PyInstaller cannot infer it.
+import pythoncom  # noqa: F401
+import pywintypes  # noqa: F401
+import win32cred  # noqa: F401
+import win32timezone  # noqa: F401
+
 
 root = Path(SPEC).resolve().parent
 
@@ -11,13 +19,16 @@ datas = [
     (str(root / "alembic"), "alembic"),
 ]
 
-hiddenimports = ["logging.config"]
-try:
-    import win32cred  # noqa: F401
-except ImportError:
-    pass
-else:
-    hiddenimports.extend(["win32cred", "pythoncom", "pywintypes"])
+hiddenimports = [
+    "logging.config",
+    # The updater reads saved PostgreSQL passwords from Windows Credential
+    # Manager. Treat this as a hard packaging dependency so release builds do
+    # not silently produce an executable that cannot use existing profiles.
+    "win32cred",
+    "win32timezone",
+    "pythoncom",
+    "pywintypes",
+]
 
 
 a = Analysis(

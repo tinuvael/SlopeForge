@@ -4,7 +4,6 @@ from __future__ import annotations
 from app.localization import tr
 
 from copy import deepcopy
-from pathlib import Path
 from PySide6.QtCore import QDate, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
@@ -18,6 +17,11 @@ from domain.assessment.evaluation import (
     CONDITION, DESIGN, REQUIRE_MANUAL_SCORE_REASON, AssessmentCriterionResult, AssessmentMatrixTemplate,
     calculate_revision,
 )
+from application.services.wall_conformance import (
+    AssessmentGeometryMeasurementInputs,
+    assessment_geometry_inputs_from_measurement_summary,
+    compatible_actual_profile_count,
+)
 from ui.presentation_labels import (
     CRITERION_HELP, compact_criterion_label, criterion_label, domain_message, matrix_label, option_label, result_label,
 )
@@ -30,9 +34,9 @@ class NullableDoubleSpinBox(QDoubleSpinBox):
     """A spin box whose initial/sentinel state is None; explicit zero stays zero."""
     nullableValueChanged = Signal(object)
 
-    def __init__(self, maximum=999.0, parent=None):
+    def __init__(self, maximum=999.0, minimum=0.0, parent=None):
         super().__init__(parent)
-        self._sentinel = -0.01
+        self._sentinel = float(minimum) - 0.01
         self.setRange(self._sentinel, maximum)
         self.setDecimals(2)
         self.setSpecialValueText("—")
@@ -82,6 +86,12 @@ class QuadrantPlot(QWidget):
                         f"DAI: {design:.3f}\nFCI: {condition:.3f}")
         self.update()
 
+    def _axis_foreground(self):
+        return self.palette().color(QPalette.ColorRole.Text)
+
+    def _axis_border(self):
+        return self.palette().color(QPalette.ColorRole.Mid)
+
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -100,8 +110,9 @@ class QuadrantPlot(QWidget):
         for region, colour, label in regions:
             painter.fillRect(region, QColor(colour))
             painter.drawText(region.adjusted(5, 5, -5, -5), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, label)
-        painter.setPen(QPen(Qt.GlobalColor.black, 1))
+        painter.setPen(QPen(self._axis_border(), 1))
         painter.drawRect(rect); painter.drawLine(px, rect.top(), px, rect.bottom()); painter.drawLine(rect.left(), py, rect.right(), py)
+        painter.setPen(QPen(self._axis_foreground(), 1))
         painter.drawText(rect.left(), self.height()-10, tr("Face condition (FCI) →"))
         painter.save(); painter.translate(15, rect.bottom()); painter.rotate(-90); painter.drawText(0, 0, tr("Design achievement (DAI) →")); painter.restore()
         if self.design is not None and self.condition is not None:
@@ -225,6 +236,8 @@ class AssessmentAreaEvaluationDialog(QDialog):
         self.save_callback, self.read_only = save_callback, read_only
         self.attachment_service, self.unsaved = attachment_service, unsaved
         self.template = AssessmentMatrixTemplate.from_dict(self.draft.matrix_template_snapshot)
+        self._wall_conformance_summary_provider = None
+        self._wall_conformance_availability_provider = None
         self._initializing = True; self._dirty = False; self._allow_close = False; self._preview = deepcopy(self.draft)
         self.setWindowTitle(self._base_title()); self.resize(1120, 780)
         root = QVBoxLayout(self); self.tabs = QTabWidget(); root.addWidget(self.tabs)
@@ -276,12 +289,31 @@ class AssessmentAreaEvaluationDialog(QDialog):
         self.override_reason.setVisible(self.draft.controlled_blasting_detection_source == "manual_override")
         self.tabs.addTab(page, tr("General"))
 
-    def _nullable(self, maximum=999):
-        control = NullableDoubleSpinBox(maximum); control.nullableValueChanged.connect(self._changed); return control
+    def _nullable(self, maximum=999, minimum=0):
+        control = NullableDoubleSpinBox(maximum, minimum); control.nullableValueChanged.connect(self._changed); return control
 
     def _geometry(self):
         scroll = QScrollArea(); scroll.setWidgetResizable(True); page = QWidget(); layout = QVBoxLayout(page); layout.setSpacing(7)
-        self.shortfall = self._nullable(90); self.deficit = self._nullable(); self.toe = self._nullable()
+        self.shortfall = self._nullable(90); self.deficit = self._nullable(); self.toe = self._nullable(minimum=-999)
+        self.wall_conformance_import_widget = QFrame()
+        import_layout = QHBoxLayout(self.wall_conformance_import_widget)
+        import_layout.setContentsMargins(0, 0, 0, 0)
+        import_layout.setSpacing(6)
+        self.wall_conformance_import_button = QPushButton(tr("Use Wall Conformance measurements"))
+        self.wall_conformance_import_button.setToolTip(
+            tr("Wall Conformance Q2 measurements populate the Geometry inputs after confirmation.")
+        )
+        self.wall_conformance_import_button.clicked.connect(self._use_wall_conformance_measurements)
+        import_layout.addWidget(self.wall_conformance_import_button)
+        self.wall_conformance_import_source = QLabel(tr("Applied from Wall Conformance Q2"))
+        self.wall_conformance_import_source.setObjectName("MutedText")
+        self.wall_conformance_import_source.setToolTip(
+            tr("The available Geometry inputs were sourced from Wall Conformance Q2 measurements.")
+        )
+        self.wall_conformance_import_source.hide()
+        import_layout.addWidget(self.wall_conformance_import_source)
+        import_layout.addStretch()
+        layout.addWidget(self.wall_conformance_import_widget)
         self.geometry_editors = {}
         controls = {
             "bench_angle": (tr("Angle deviation, °"), self.shortfall),
@@ -297,24 +329,197 @@ class AssessmentAreaEvaluationDialog(QDialog):
             editor.set_primary_input(control); editor.set_help(self._geometry_help(criterion.id))
             editor.changed.connect(self._changed)
             self.geometry_editors[criterion.id] = editor; layout.addWidget(editor)
-        measured = QFrame(); measured.setObjectName("CriterionCard"); measured.setProperty("assessmentSection", "measuredWallGeometry"); self.measured_wall_widget = measured
-        measured_form = QGridLayout(measured); measured_form.setContentsMargins(8, 5, 8, 5); measured_form.setHorizontalSpacing(12); measured_form.setVerticalSpacing(5); measured_form.setColumnStretch(0, 1)
-        measured_title = QLabel(f"<b>{tr('Measured wall geometry')}</b>"); measured_title.setObjectName("EngineeringSectionTitle"); measured_form.addWidget(measured_title, 0, 0, 1, 2)
-        self.measured_wall_controls = {}
-        for row, (label, name) in enumerate((("Mean backbreak, m", "mean_backbreak_m"), ("Maximum backbreak, m", "maximum_backbreak_m"), ("Mean overbreak, m", "mean_overbreak_m"), ("Mean underbreak, m", "mean_underbreak_m"), ("Contour RMS deviation, m", "contour_rms_deviation_m")), 1):
-            control = self._nullable(); control.setFixedWidth(120); control.setEnabled(not self.read_only); self.measured_wall_controls[name] = control
-            measured_form.addWidget(QLabel(tr(label)), row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            measured_form.addWidget(control, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.measurement_method = QComboBox(); self.measurement_method.addItem("—", None)
-        for code, label in (("survey", "Survey"), ("photogrammetry", "Photogrammetry"), ("laser_scan", "Laser scan"), ("manual_measurement", "Manual measurement"), ("visual_estimate", "Visual estimate")):
-            self.measurement_method.addItem(tr(label), code)
-        self.measurement_method.setMaximumWidth(220)
-        self.measurement_method.setEnabled(not self.read_only); measured_form.addWidget(QLabel(tr("Measurement method")), 6, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter); measured_form.addWidget(self.measurement_method, 6, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.measurement_method.currentIndexChanged.connect(self._changed)
-        calculate = QPushButton(tr("Calculate from survey…")); calculate.setMaximumWidth(180); calculate.setEnabled(not self.read_only); calculate.clicked.connect(self._calculate_wall_rms); measured_form.addWidget(calculate, 7, 1, Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(measured)
+        self.additional_geometry_widget = QFrame()
+        self.additional_geometry_widget.setProperty("assessmentSection", "additionalGeometryMetrics")
+        additional_layout = QVBoxLayout(self.additional_geometry_widget)
+        additional_layout.setContentsMargins(0, 8, 0, 0)
+        additional_layout.setSpacing(7)
+        title = QLabel(f"<b>{tr('Additional geometry metrics')}</b>")
+        title.setObjectName("EngineeringSectionTitle")
+        additional_layout.addWidget(title)
+        self.additional_geometry_values = {}
+        metrics = QGridLayout()
+        metrics.setContentsMargins(7, 0, 7, 0)
+        metrics.setHorizontalSpacing(12)
+        metrics.setVerticalSpacing(5)
+        metrics.setColumnStretch(0, 1)
+        for row, (key, label) in enumerate((
+            ("mean_backbreak_m", tr("Mean backbreak")),
+            ("maximum_backbreak_m", tr("Maximum backbreak")),
+            ("mean_overbreak_m", tr("Mean overbreak")),
+            ("mean_underbreak_m", tr("Mean underbreak")),
+            ("contour_rms_deviation_m", tr("Contour RMS")),
+        )):
+            metric_label = QLabel(label)
+            metric_label.setObjectName("AssessmentMetricLabel")
+            label_font = self.font()
+            label_font.setBold(True)
+            metric_label.setFont(label_font)
+            value = QLabel(tr("N/A"))
+            value.setObjectName("AssessmentMetricValue")
+            value.setFont(self.font())
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.additional_geometry_values[key] = value
+            metrics.addWidget(metric_label, row, 0)
+            metrics.addWidget(value, row, 1)
+        additional_layout.addLayout(metrics)
+        layout.addWidget(self.additional_geometry_widget)
         layout.addStretch()
         scroll.setWidget(page); self.tabs.addTab(scroll, tr("Geometry"))
+
+    def set_wall_conformance_summary_provider(self, provider, availability_provider=None):
+        """Configure the page-owned current-result source after tab composition."""
+        self._wall_conformance_summary_provider = provider
+        self._wall_conformance_availability_provider = availability_provider
+        self.refresh_wall_conformance_import_availability()
+
+    def refresh_wall_conformance_import_availability(self):
+        if self.read_only:
+            available, reason = False, tr("Archived Assessment Areas and Viewer accounts are read-only.")
+        elif self._wall_conformance_summary_provider is None:
+            available, reason = False, tr("Wall Conformance is not available for this Assessment Area.")
+        else:
+            try:
+                available, reason = (
+                    self._wall_conformance_availability_provider()
+                    if self._wall_conformance_availability_provider is not None
+                    else (True, "")
+                )
+            except Exception as exc:
+                available, reason = False, str(exc)
+        self.wall_conformance_import_button.setEnabled(bool(available))
+        self.wall_conformance_import_button.setToolTip(reason or tr(
+            "Wall Conformance Q2 measurements populate the Geometry inputs after confirmation."
+        ))
+
+    @staticmethod
+    def _wall_conformance_value(value, unit, *, signed=False):
+        if value is None:
+            return tr("N/A")
+        prefix = "+" if signed and value >= 0 else ""
+        return f"{prefix}{value:.1f}{unit}"
+
+    def _wall_conformance_preview(self, values: AssessmentGeometryMeasurementInputs):
+        fields = (
+            (tr("Angle shortfall"), self.shortfall.nullable_value(), values.bench_angle_shortfall_deg, "°", False),
+            (tr("Berm deficit"), self.deficit.nullable_value(), values.berm_width_deficit_m, " m", False),
+            (tr("Toe deviation"), self.toe.nullable_value(), values.toe_offset_from_design_m, " m", True),
+        )
+        lines = []
+        for label, current, proposed, unit, signed in fields:
+            if proposed is None:
+                lines.append(
+                    f"<b>{label}</b><br>{tr('Wall Conformance')}: {tr('N/A')}<br>"
+                    f"{tr('Existing value will be kept')}"
+                )
+            else:
+                lines.append(
+                    f"<b>{label}</b><br>{tr('Current')}: "
+                    f"{self._wall_conformance_value(current, unit, signed=signed)}<br>"
+                    f"{tr('Wall Conformance Q2')}: "
+                    f"{self._wall_conformance_value(proposed, unit, signed=signed)}"
+                )
+        additional_fields = (
+            (tr("Mean backbreak"), "mean_backbreak_m"),
+            (tr("Maximum backbreak"), "maximum_backbreak_m"),
+            (tr("Mean overbreak"), "mean_overbreak_m"),
+            (tr("Mean underbreak"), "mean_underbreak_m"),
+            (tr("Contour RMS"), "contour_rms_deviation_m"),
+        )
+        for label, name in additional_fields:
+            current = getattr(self.draft.measured_wall_geometry, name)
+            proposed = getattr(values, name)
+            if proposed is None:
+                lines.append(
+                    f"<b>{label}</b><br>{tr('Wall Conformance')}: {tr('N/A')}<br>"
+                    f"{tr('Existing value will be kept')}"
+                )
+            else:
+                lines.append(
+                    f"<b>{label}</b><br>{tr('Current')}: "
+                    f"{self._wall_conformance_value(current, ' m')}<br>"
+                    f"{tr('Wall Conformance')}: {self._wall_conformance_value(proposed, ' m')}"
+                )
+        return "<br><br>".join(lines)
+
+    def _refresh_additional_geometry_metrics(self):
+        measured = self.draft.measured_wall_geometry
+        for name, label in self.additional_geometry_values.items():
+            value = getattr(measured, name)
+            label.setText(tr("N/A") if value is None else f"{value:.1f} m")
+
+    @staticmethod
+    def _wall_conformance_dataset_source(dataset):
+        return getattr(dataset, "logical_id", None) or None
+
+    def _apply_additional_geometry_metrics(self, values, result):
+        measured = self.draft.measured_wall_geometry
+        available = False
+        for name in self.additional_geometry_values:
+            value = getattr(values, name)
+            if value is not None:
+                setattr(measured, name, value)
+                available = True
+        if available:
+            measured.calculation_method = "wall_conformance_transverse_profiles_v1"
+            measured.measurement_method = "survey"
+            design_source = self._wall_conformance_dataset_source(
+                getattr(result, "design_dataset", None)
+            )
+            survey_source = self._wall_conformance_dataset_source(
+                getattr(result, "actual_dataset", None)
+            )
+            if design_source:
+                measured.design_surface_source = design_source
+            if survey_source:
+                measured.survey_source = survey_source
+        self._refresh_additional_geometry_metrics()
+
+    def _use_wall_conformance_measurements(self):
+        if self.read_only or self._wall_conformance_summary_provider is None:
+            return
+        try:
+            result = self._wall_conformance_summary_provider()
+            if compatible_actual_profile_count(result) == 0:
+                QMessageBox.warning(
+                    self, tr("Wall Conformance measurements unavailable"),
+                    tr("No compatible Actual wall sections were found.\n"
+                       "There are no Wall Conformance measurements to apply."),
+                )
+                return
+            values = assessment_geometry_inputs_from_measurement_summary(
+                getattr(result, "measurement_summary", result)
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, tr("Wall Conformance unavailable"), domain_message(str(exc)))
+            self.refresh_wall_conformance_import_availability()
+            return
+        if not values.has_available_value:
+            QMessageBox.information(
+                self, tr("Wall Conformance unavailable"),
+                tr("Wall Conformance has no valid measurements for this Assessment Area."),
+            )
+            return
+        preview = QMessageBox(self)
+        preview.setIcon(QMessageBox.Icon.Question)
+        preview.setWindowTitle(tr("Use Wall Conformance measurements"))
+        preview.setText(tr("Use Wall Conformance measurements?"))
+        preview.setInformativeText(self._wall_conformance_preview(values))
+        preview.setTextFormat(Qt.TextFormat.RichText)
+        apply_button = preview.addButton(tr("Apply"), QMessageBox.ButtonRole.AcceptRole)
+        preview.addButton(tr("Cancel"), QMessageBox.ButtonRole.RejectRole)
+        preview.exec()
+        if preview.clickedButton() is not apply_button:
+            return
+        if values.bench_angle_shortfall_deg is not None:
+            self.shortfall.set_nullable_value(values.bench_angle_shortfall_deg)
+        if values.berm_width_deficit_m is not None:
+            self.deficit.set_nullable_value(values.berm_width_deficit_m)
+        if values.toe_offset_from_design_m is not None:
+            self.toe.set_nullable_value(values.toe_offset_from_design_m)
+        self._apply_additional_geometry_metrics(values, result)
+        self.wall_conformance_import_source.show()
+        self._changed()
 
     def _geometry_rules(self):
         if self.template.id == "controlled_blasting_v1":
@@ -407,10 +612,8 @@ class AssessmentAreaEvaluationDialog(QDialog):
         if deficit is None and d.get("design_berm_width_m") is not None and d.get("actual_berm_width_m") is not None:
             deficit = max(d["design_berm_width_m"] - d["actual_berm_width_m"], 0)
         self.shortfall.set_nullable_value(shortfall); self.deficit.set_nullable_value(deficit); self.toe.set_nullable_value(d.get("toe_offset_from_design_m"))
-        measured = self.draft.measured_wall_geometry
-        for name, control in self.measured_wall_controls.items(): control.set_nullable_value(getattr(measured, name))
-        self.measurement_method.setCurrentIndex(max(0, self.measurement_method.findData(measured.measurement_method)))
         for criterion_id, editor in self.geometry_editors.items(): editor.restore(results.get(criterion_id))
+        self._refresh_additional_geometry_metrics()
         face = self.draft.face_condition_inputs or {}
         for criterion_id, editor in self.editors.items():
             result = results.get(criterion_id)
@@ -428,8 +631,6 @@ class AssessmentAreaEvaluationDialog(QDialog):
         revision.assessment_date = self.date.date().toPython(); revision.inspector = self.inspector.text().strip(); revision.comments = self.comments.toPlainText(); revision.recommendations = self.recommendations.toPlainText(); revision.change_reason = self.override_reason.text().strip()
         shortfall, deficit, toe = self.shortfall.nullable_value(), self.deficit.nullable_value(), self.toe.nullable_value()
         revision.design_inputs = {"bench_angle_shortfall_deg": shortfall, "berm_width_deficit_m": deficit, "toe_offset_from_design_m": toe}
-        for name, control in self.measured_wall_controls.items(): setattr(revision.measured_wall_geometry, name, control.nullable_value())
-        revision.measured_wall_geometry.measurement_method = self.measurement_method.currentData()
         values = {"bench_angle": shortfall, "berm_width": deficit, "toe_position": abs(toe) if toe is not None else None}
         results = []
         for criterion in self.template.section(DESIGN).criteria:
@@ -446,16 +647,6 @@ class AssessmentAreaEvaluationDialog(QDialog):
         revision.face_condition_inputs = face_inputs; revision.criterion_results = results
         calculate_revision(revision)
         return revision
-
-    def _calculate_wall_rms(self):
-        from ui.dialogs.wall_rms_dialog import WallRmsDialog
-        dialog = WallRmsDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result:
-            self.measured_wall_controls["contour_rms_deviation_m"].set_nullable_value(dialog.result.rms_m)
-            measured = self.draft.measured_wall_geometry
-            measured.design_surface_source = Path(dialog.design.text()).name
-            measured.survey_source = Path(dialog.survey.text()).name
-            measured.survey_point_count = dialog.result.point_count; measured.calculation_method = dialog.result.method
 
     def refresh(self, mark_dirty=True):
         if self._initializing: return

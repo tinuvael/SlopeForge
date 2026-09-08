@@ -12,6 +12,7 @@ from tests.postgres_test_database import is_disposable_test_database
 
 from database.base import Base
 from database.migrations import alembic_config
+from database.schema_compatibility import expected_alembic_head
 from database.settings import Settings
 from database.startup import StartupError, initialize_database_runtime
 
@@ -47,7 +48,9 @@ def test_explicit_settings_initialize_empty_database_without_environment(
         assert first_settings is settings
         assert set(Base.metadata.tables) <= set(inspect(first_engine).get_table_names())
         with first_engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "1"
+            assert connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == expected_alembic_head()
         with first_sessions() as session:
             assert session.scalar(text("SELECT 1")) == 1
 

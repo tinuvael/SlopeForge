@@ -50,25 +50,44 @@ class BlockRelatedEntityList(RelatedEntityList):
         "unknown": ("#2a313b", "#566271"),
     }
 
-    def __init__(self, title: str):
+    def __init__(self, title: str, *, expand_viewport=False):
         super().__init__(title)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._expand_viewport = bool(expand_viewport)
+        vertical_policy = (
+            QSizePolicy.Policy.Expanding
+            if self._expand_viewport
+            else QSizePolicy.Policy.Fixed
+        )
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, vertical_policy)
         self.layout.setSpacing(6)
         self.list.setSpacing(2)
-        self.list.setFixedHeight(self.LIST_HEIGHT)
+        if self._expand_viewport:
+            self.list.setMinimumHeight(self.LIST_HEIGHT)
+            self.list.setMaximumHeight(16777215)
+            self.list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        else:
+            self.list.setFixedHeight(self.LIST_HEIGHT)
         self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.setStyleSheet("QListWidget{background:transparent;border:0;}")
         self.list.viewport().installEventFilter(self)
         self.empty_label = QLabel()
         self.empty_label.setObjectName("MutedText")
-        self.empty_label.setFixedHeight(self.LIST_HEIGHT)
+        if self._expand_viewport:
+            self.empty_label.setMinimumHeight(self.LIST_HEIGHT)
+            self.empty_label.setMaximumHeight(16777215)
+            self.empty_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        else:
+            self.empty_label.setFixedHeight(self.LIST_HEIGHT)
         self.empty_label.setContentsMargins(2, 0, 0, 0)
         self.empty_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         self.empty_label.hide()
         self.layout.addWidget(self.empty_label)
+        if self._expand_viewport:
+            self.layout.setStretch(self.layout.indexOf(self.list), 1)
+            self.layout.setStretch(self.layout.indexOf(self.empty_label), 1)
         self.list.itemSelectionChanged.connect(self._sync_row_styles)
         self._refit_pending = False
 
@@ -125,7 +144,7 @@ class BlockRelatedEntityList(RelatedEntityList):
             item.setSizeHint(QSize(self._row_available_width(), max(1, holder.sizeHint().height())))
 
     def _fit_two_rows(self, *, use_visual_geometry=False) -> None:
-        """Reserve a bounded viewport that never clips either of the first two rows."""
+        """Reserve a two-row minimum while allowing a taller Overview viewport."""
         if not self.list.count():
             height = self.LIST_HEIGHT
         else:
@@ -147,14 +166,22 @@ class BlockRelatedEntityList(RelatedEntityList):
                 if rect.isValid():
                     viewport_chrome = self.list.height() - self.list.viewport().height()
                     height = max(height, rect.bottom() + 1 + viewport_chrome)
-        self.list.setFixedHeight(height)
-        self.empty_label.setFixedHeight(height)
+        if self._expand_viewport:
+            minimum_height = max(self.LIST_HEIGHT, height)
+            self.list.setMinimumHeight(minimum_height)
+            self.empty_label.setMinimumHeight(minimum_height)
+        else:
+            self.list.setFixedHeight(height)
+            self.empty_label.setFixedHeight(height)
 
     def set_rows(self, rows, *, empty_text="No linked entities"):
         """Build Block rows directly so QListWidget owns each wrapper only once."""
         rows = list(rows)
         self.list.clear()
-        self.list.setFixedHeight(self.LIST_HEIGHT)
+        if self._expand_viewport:
+            self.list.setMinimumHeight(self.LIST_HEIGHT)
+        else:
+            self.list.setFixedHeight(self.LIST_HEIGHT)
 
         if not rows:
             self.list.hide()
@@ -271,15 +298,27 @@ class BlockRelatedEntityList(RelatedEntityList):
 
 
 class BlockNotesCard(InlineAutosaveNotes):
-    """Compact fixed-content Notes card; the editor scrolls for long comments."""
+    """Notes card that gains a larger editor viewport on taller Overviews."""
 
     EDITOR_HEIGHT = 46
 
-    def __init__(self, title="Notes"):
+    def __init__(self, title="Notes", *, expand_editor=False):
         super().__init__(title)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._expand_editor = bool(expand_editor)
+        vertical_policy = (
+            QSizePolicy.Policy.Expanding
+            if self._expand_editor
+            else QSizePolicy.Policy.Fixed
+        )
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, vertical_policy)
         self.layout.setSpacing(6)
-        self.editor.setFixedHeight(self.EDITOR_HEIGHT)
+        if self._expand_editor:
+            self.editor.setMinimumHeight(self.EDITOR_HEIGHT)
+            self.editor.setMaximumHeight(16777215)
+            self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.layout.setStretch(self.layout.indexOf(self.editor), 1)
+        else:
+            self.editor.setFixedHeight(self.EDITOR_HEIGHT)
         self.editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
 
@@ -358,7 +397,7 @@ class BlockAttachmentPreview(QuickAttachmentPreview):
 
 
 class BlockGeometryCard(SquareGeometryCard):
-    """Wider Block geometry card whose vertical hint never drives the Overview row."""
+    """Block geometry card whose vertical hint never drives the Overview row."""
 
     PREFERRED_WIDTH = 700
     MINIMUM_WIDTH = 610
@@ -370,6 +409,7 @@ class BlockGeometryCard(SquareGeometryCard):
         *,
         action_label="Reimport",
         enforce_square=False,
+        expand_horizontally=False,
         parent=None,
     ):
         super().__init__(
@@ -379,10 +419,15 @@ class BlockGeometryCard(SquareGeometryCard):
             parent=parent,
         )
         self.setMinimumWidth(self.MINIMUM_WIDTH)
-        self.setMaximumWidth(self.MAXIMUM_WIDTH)
+        self.setMaximumWidth(16777215 if expand_horizontally else self.MAXIMUM_WIDTH)
         self.setMinimumHeight(0)
         self.setMaximumHeight(16777215)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+        horizontal_policy = (
+            QSizePolicy.Policy.Expanding
+            if expand_horizontally
+            else QSizePolicy.Policy.Preferred
+        )
+        self.setSizePolicy(horizontal_policy, QSizePolicy.Policy.Ignored)
         self.plan.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.plan.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 

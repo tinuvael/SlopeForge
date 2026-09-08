@@ -1,11 +1,12 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", reason="Qt unavailable", exc_type=ImportError)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from domain.geometry.types import PlanPoint, PlanPolygon
@@ -15,7 +16,11 @@ from tests.assessment_boundary_fixtures import geometry_revision
 from application.state.assessment_domain_state import AssessmentDomainState
 from domain.assessment.evaluation import (AssessmentAreaEvaluationService, AssessmentCriterionResult,
  CONDITION, DESIGN, calculate_revision)
-from ui.editors.assessment_evaluation_editor import AssessmentAreaEvaluationDialog, DAMAGE_WARNING, NullableDoubleSpinBox
+from application.services.wall_conformance import assessment_geometry_inputs_from_measurement_summary
+from ui.editors.assessment_evaluation_editor import (
+    AssessmentAreaEvaluationDialog, DAMAGE_WARNING, NullableDoubleSpinBox,
+    QuadrantPlot,
+)
 
 
 def app(): return QApplication.instance() or QApplication([])
@@ -46,6 +51,46 @@ def filled_draft(state,area):
     draft.face_condition_inputs={k:v for k,v in values.items() if k not in {"bench_angle","berm_width","toe_position"}}|options
     calculate_revision(draft,True)
     return evaluation,draft
+
+
+def wall_conformance_summary(*, angle, berm, toe, additional=None):
+    aggregate = lambda value: SimpleNamespace(
+        valid_count=0 if value is None else 1,
+        total_count=1,
+        median=value,
+        mean=value,
+        minimum=value,
+        maximum=value,
+    )
+    return SimpleNamespace(
+        angle_deviation_deg=aggregate(angle),
+        upper_berm_width_deviation_m=aggregate(berm),
+        toe_signed_offset_u_m=aggregate(toe),
+        additional_geometry=additional,
+    )
+
+
+def additional_geometry_summary(*, backbreak=None, overbreak=None, underbreak=None, rms=None):
+    aggregate = lambda value: SimpleNamespace(
+        valid_count=0 if value is None else 1,
+        total_count=1,
+        median=value,
+        mean=value,
+        minimum=value,
+        maximum=value,
+    )
+    return SimpleNamespace(
+        backbreak_m=aggregate(backbreak),
+        mean_overbreak_m=overbreak,
+        mean_underbreak_m=underbreak,
+        contour_rms_deviation_m=rms,
+    )
+
+
+def confirm_wall_conformance_preview(monkeypatch, button_text):
+    def choose(box):
+        next(button for button in box.buttons() if button.text() == button_text).click()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", choose)
 
 def test_new_evaluation_is_transient_and_empty_legacy_is_safe():
     state,area=make_state(); evaluation,draft=AssessmentAreaEvaluationService(state).new_evaluation(area)
@@ -183,4 +228,175 @@ def test_storage_failure_does_not_report_success_or_create_revision(monkeypatch)
     dialog=AssessmentAreaEvaluationDialog(area,evaluation,draft,failure)
     monkeypatch.setattr(QtWidgets.QMessageBox,"critical",lambda *_args,**_kwargs: QtWidgets.QMessageBox.StandardButton.Ok)
     assert dialog.save("completed") is False and evaluation.revisions==[] and state.evaluations==[]
+    dialog._allow_close=True; dialog.close()
+
+
+def test_quadrant_axes_use_palette_foreground_and_border_roles():
+    app()
+    plot = QuadrantPlot()
+    palette = QPalette(plot.palette())
+    palette.setColor(QPalette.ColorRole.Text, QColor("#e6edf3"))
+    palette.setColor(QPalette.ColorRole.Mid, QColor("#8b949e"))
+    plot.setPalette(palette)
+    assert plot._axis_foreground() == QColor("#e6edf3")
+    assert plot._axis_border() == QColor("#8b949e")
+    source = __import__("pathlib").Path(
+        "ui/editors/assessment_evaluation_editor.py"
+    ).read_text()
+    assert "Qt.GlobalColor.black" not in source
+
+
+@pytest.mark.parametrize(
+    ("angle", "berm", "expected_angle", "expected_berm"),
+    ((-2.4, -1.3, 2.4, 1.3), (+1.2, +0.5, 0.0, 0.0)),
+)
+def test_wall_conformance_q2_mapping_preserves_assessment_semantics(
+    angle, berm, expected_angle, expected_berm,
+):
+    mapped = assessment_geometry_inputs_from_measurement_summary(
+        wall_conformance_summary(angle=angle, berm=berm, toe=-0.8)
+    )
+    assert mapped.bench_angle_shortfall_deg == expected_angle
+    assert mapped.berm_width_deficit_m == expected_berm
+    assert mapped.toe_offset_from_design_m == -0.8
+
+
+def test_wall_conformance_apply_is_explicit_dirty_and_unsaved(monkeypatch):
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area); saves=[]
+    dialog=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:saves.append(True))
+    dialog.shortfall.set_nullable_value(3.0); dialog.deficit.set_nullable_value(1.5); dialog.toe.set_nullable_value(.4)
+    dialog.set_wall_conformance_summary_provider(
+        lambda: SimpleNamespace(
+            measurement_summary=wall_conformance_summary(
+                angle=-2.4, berm=-1.3, toe=1.2,
+                additional=additional_geometry_summary(
+                    backbreak=.8, overbreak=.6, underbreak=.3, rms=.9,
+                ),
+            ),
+            design_dataset=SimpleNamespace(logical_id="design-current"),
+            actual_dataset=SimpleNamespace(logical_id="actual-current"),
+        )
+    )
+    assert dialog.wall_conformance_import_button.isEnabled()
+    confirm_wall_conformance_preview(monkeypatch, "Apply")
+    dialog._use_wall_conformance_measurements()
+    assert (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == (2.4, 1.3, 1.2)
+    measured = dialog.draft.measured_wall_geometry
+    assert (
+        measured.mean_backbreak_m, measured.maximum_backbreak_m,
+        measured.mean_overbreak_m, measured.mean_underbreak_m,
+        measured.contour_rms_deviation_m,
+    ) == (.8, .8, .6, .3, .9)
+    assert (measured.calculation_method, measured.measurement_method) == (
+        "wall_conformance_transverse_profiles_v1", "survey",
+    )
+    assert (measured.design_surface_source, measured.survey_source) == (
+        "design-current", "actual-current",
+    )
+    assert dialog.additional_geometry_values["contour_rms_deviation_m"].text() == "0.9 m"
+    assert dialog._dirty and not saves and evaluation.revisions == []
+    assert not dialog.wall_conformance_import_source.isHidden()
+    dialog._allow_close=True; dialog.close()
+
+
+def test_zero_compatible_actual_coverage_does_not_open_import_preview_or_mutate(monkeypatch):
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area)
+    dialog=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    dialog.shortfall.set_nullable_value(3.0); dialog.deficit.set_nullable_value(1.5); dialog.toe.set_nullable_value(.4)
+    dialog.draft.measured_wall_geometry.mean_backbreak_m = .9
+    dialog._dirty = False
+    dialog.set_wall_conformance_summary_provider(
+        lambda: SimpleNamespace(measurement_summary=wall_conformance_summary(angle=-2.4, berm=-1.3, toe=1.2))
+    )
+    import ui.editors.assessment_evaluation_editor as editor_module
+    monkeypatch.setattr(editor_module, "compatible_actual_profile_count", lambda _result: 0)
+    warnings=[]
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *_args: warnings.append(True))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda *_args: (_ for _ in ()).throw(AssertionError("preview opened")))
+    dialog._use_wall_conformance_measurements()
+    assert warnings
+    assert (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == (3.0, 1.5, .4)
+    assert dialog.draft.measured_wall_geometry.mean_backbreak_m == .9
+    assert not dialog._dirty
+    dialog._allow_close=True; dialog.close()
+
+
+def test_wall_conformance_cancel_and_missing_kpi_keep_existing_values(monkeypatch):
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area)
+    dialog=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    dialog.shortfall.set_nullable_value(3.0); dialog.deficit.set_nullable_value(1.5); dialog.toe.set_nullable_value(.4)
+    dialog.draft.measured_wall_geometry.mean_underbreak_m = .9
+    dialog.set_wall_conformance_summary_provider(
+        lambda: SimpleNamespace(measurement_summary=wall_conformance_summary(
+            angle=-2.4, berm=None, toe=-.8,
+            additional=additional_geometry_summary(backbreak=.5, overbreak=.2, rms=.4),
+        ))
+    )
+    confirm_wall_conformance_preview(monkeypatch, "Cancel")
+    dialog._use_wall_conformance_measurements()
+    assert (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == (3.0, 1.5, .4)
+    assert dialog.draft.measured_wall_geometry.mean_underbreak_m == .9
+    confirm_wall_conformance_preview(monkeypatch, "Apply")
+    dialog._use_wall_conformance_measurements()
+    assert (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == (2.4, 1.5, -.8)
+    assert dialog.draft.measured_wall_geometry.mean_underbreak_m == .9
+    assert (dialog.draft.measured_wall_geometry.mean_backbreak_m,
+            dialog.draft.measured_wall_geometry.mean_overbreak_m,
+            dialog.draft.measured_wall_geometry.contour_rms_deviation_m) == (.5, .2, .4)
+    dialog._allow_close=True; dialog.close()
+
+
+def test_wall_conformance_action_is_disabled_for_read_only_or_stale_geometry():
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area)
+    read_only=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None,read_only=True)
+    read_only.set_wall_conformance_summary_provider(lambda: wall_conformance_summary(angle=0, berm=0, toe=0))
+    assert not read_only.wall_conformance_import_button.isEnabled()
+    read_only._allow_close=True; read_only.close()
+    editable=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    editable.set_wall_conformance_summary_provider(
+        lambda: wall_conformance_summary(angle=0, berm=0, toe=0),
+        lambda: (False, "Wall Conformance measurements are only available for the active geometry revision."),
+    )
+    assert not editable.wall_conformance_import_button.isEnabled()
+    assert "active geometry revision" in editable.wall_conformance_import_button.toolTip()
+    editable._allow_close=True; editable.close()
+
+
+def test_wall_conformance_import_matches_manual_geometry_scoring(monkeypatch):
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area)
+    manual=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    manual.shortfall.set_nullable_value(2.4); manual.deficit.set_nullable_value(1.3); manual.toe.set_nullable_value(-.8)
+    manual_result=manual.collect()
+    imported=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    imported.set_wall_conformance_summary_provider(
+        lambda: wall_conformance_summary(angle=-2.4, berm=-1.3, toe=-.8)
+    )
+    confirm_wall_conformance_preview(monkeypatch, "Apply")
+    imported._use_wall_conformance_measurements()
+    imported_result=imported.collect()
+    assert (imported_result.design_achievement_index, imported_result.face_condition_index) == (
+        manual_result.design_achievement_index, manual_result.face_condition_index
+    )
+    manual._allow_close=True; manual.close(); imported._allow_close=True; imported.close()
+
+
+def test_wall_conformance_unavailable_or_empty_result_never_mutates_inputs(monkeypatch):
+    app(); state,area=make_state(); evaluation,draft=filled_draft(state,area)
+    dialog=AssessmentAreaEvaluationDialog(area,evaluation,draft,lambda *_:None)
+    dialog.shortfall.set_nullable_value(3.0); dialog.deficit.set_nullable_value(1.5); dialog.toe.set_nullable_value(.4)
+    original = (3.0, 1.5, .4)
+    warnings=[]
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *_args: warnings.append(True))
+    dialog.set_wall_conformance_summary_provider(
+        lambda: (_ for _ in ()).throw(ValueError("No active Actual survey is configured for this Project."))
+    )
+    dialog._use_wall_conformance_measurements()
+    assert warnings and (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == original
+    messages=[]
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *_args: messages.append(True))
+    dialog.set_wall_conformance_summary_provider(
+        lambda: wall_conformance_summary(angle=None, berm=None, toe=None)
+    )
+    dialog._use_wall_conformance_measurements()
+    assert messages and (dialog.shortfall.nullable_value(), dialog.deficit.nullable_value(), dialog.toe.nullable_value()) == original
     dialog._allow_close=True; dialog.close()

@@ -266,14 +266,18 @@ def test_block_overview_uses_main_pattern_depth_and_execution_exceptions():
 def test_block_overview_refinements_keep_preview_and_navigation_distinct():
     page = Path("ui/pages/block_page.py").read_text(encoding="utf-8")
     helpers = Path("ui/pages/block_overview_widgets.py").read_text(encoding="utf-8")
-    general = page.index("overview_stack.addWidget(self.general_info)")
-    related = page.index("overview_stack.addWidget(self.related_areas)")
-    notes = page.index("overview_stack.addWidget(self.notes)")
+    general = page.index("overview_stack.addWidget(self.general_info")
+    related = page.index("overview_stack.addWidget(self.related_areas")
+    notes = page.index("overview_stack.addWidget(self.notes")
     assert general < related < notes
     assert 'BlockAttachmentPreview("Photos", "photo", max_items=6)' in page
     assert 'BlockAttachmentPreview("Documents", "document", max_items=7)' in page
-    assert 'BlockGeometryCard("Plan / geometry", action_label="Reimport")' in page
-    assert 'BlockNotesCard("Notes")' in page
+    assert "BlockGeometryCard" in page
+    assert '"Plan / geometry"' in page
+    assert 'action_label="Reimport"' in page
+    assert "expand_horizontally=True" in page
+    assert "BlockNotesCard" in page
+    assert '"Notes"' in page
     assert "set_visible_item_limit(photo_limit)" in page
     assert "set_visible_item_limit(document_limit)" in page
     assert "entity_activated.connect(self._preview_related_area)" in page

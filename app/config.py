@@ -1,6 +1,6 @@
 APP_NAME = "SlopeForge"
-APP_VERSION = "1.0.0"
-APP_VERSION_DISPLAY = "1.0"
+APP_VERSION = "1.1.0"
+APP_VERSION_DISPLAY = "1.1"
 APP_AUTHOR = "Емшанов Евгений"
 APP_DESCRIPTION = "Desktop application for storing and analyzing blasting and final wall quality data."
 APP_COPYRIGHT = "© 2026 Емшанов Евгений"

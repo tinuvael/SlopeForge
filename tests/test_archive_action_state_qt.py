@@ -86,11 +86,20 @@ def test_area_and_contour_open_synchronize_archive_action(
     module = ModuleType(module_name)
     setattr(module, "ContourEventPage" if kind == "contour" else "AssessmentAreaPage", Page)
     monkeypatch.setitem(sys.modules, module_name, module)
+    wall_installs = []
+    wall_module = ModuleType("ui.pages.wall_conformance_install")
+    wall_module.install_wall_conformance_tab = lambda page: wall_installs.append(page)
+    monkeypatch.setitem(sys.modules, "ui.pages.wall_conformance_install", wall_module)
+    monkeypatch.setattr(
+        "ui.main_window.QMessageBox.critical",
+        lambda *_args: pytest.fail("successful page composition must not open a modal error"),
+    )
 
     if kind == "contour":
         assert window.open_contour_from_tree("C-1", 2, 1, "Domain")
     else:
         assert window.open_area_from_tree("A-1", 2, 1, "Domain")
+        assert wall_installs == [window.area_page]
     _assert_archive_button(window.header, archived)
     window.close()
 

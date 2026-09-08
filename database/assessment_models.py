@@ -169,6 +169,30 @@ class AssessmentAreaGeometryRevision(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     assessment_area: Mapped[AssessmentArea] = relationship(back_populates="geometry_revisions")
     event_links: Mapped[list["AssessmentEventLink"]] = relationship(back_populates="assessment_area_geometry_revision", cascade="all, delete-orphan", passive_deletes=True)
+    wall_alignment: Mapped[Optional["AssessmentAreaWallAlignment"]] = relationship(
+        back_populates="geometry_revision", cascade="all, delete-orphan",
+        passive_deletes=True, uselist=False,
+    )
+
+
+class AssessmentAreaWallAlignment(TimestampMixin, Base):
+    """Manual Wall Conformance stationing state owned by one frozen geometry revision."""
+
+    __tablename__ = "assessment_area_wall_alignments"
+    __table_args__ = (
+        CheckConstraint(
+            "jsonb_typeof(points_json) = 'array'",
+            name="ck_assessment_area_wall_alignments_points_array",
+        ),
+    )
+    assessment_area_geometry_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("assessment_area_geometry_revisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    points_json: Mapped[list[dict[str, float]]] = mapped_column(JSONB, nullable=False)
+    geometry_revision: Mapped[AssessmentAreaGeometryRevision] = relationship(
+        back_populates="wall_alignment"
+    )
 
 
 class AssessmentEventLink(Base):

@@ -54,6 +54,7 @@ class ProjectSurfaceRepositoryPort(Protocol):
     def list_for_site(self, site_id: int, *, dataset_kind: str | None = None) -> list[Any]: ...
     def get_current(self, site_id: int, dataset_kind: str) -> Any | None: ...
     def get_by_logical_id(self, site_id: int, logical_id: str) -> Any: ...
+    def update_semantic_mapping(self, site_id: int, logical_id: str, mapping: dict[str, object]) -> Any: ...
 
 
 SurfaceImporter = Callable[[str | Path], SurfaceImportResultPort]
@@ -144,3 +145,15 @@ class ProjectSurfaceDatasetService:
         if row is None:
             return None
         return self.load_dataset(site_id, row.logical_id)
+
+    def save_design_semantic_mapping(self, site_id: int, logical_id: str, mapping):
+        from domain.wall_conformance import SurfaceRoleMapping
+
+        if not isinstance(mapping, SurfaceRoleMapping):
+            raise TypeError("mapping must be a SurfaceRoleMapping")
+        row = self.repository.get_by_logical_id(site_id, logical_id)
+        if row.dataset_kind != "design":
+            raise ValueError("Surface semantics may be saved only for Design datasets")
+        return self.repository.update_semantic_mapping(
+            site_id, logical_id, mapping.to_dict()
+        )

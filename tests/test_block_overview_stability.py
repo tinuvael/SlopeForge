@@ -23,7 +23,7 @@ def test_block_geometry_and_related_rows_use_stable_overview_presentation():
     from ui.pages.entity_overview_widgets import OverviewLinkButton, RelatedEntityRow
 
     app = widgets.QApplication.instance() or widgets.QApplication([])
-    geometry = BlockGeometryCard()
+    geometry = BlockGeometryCard(expand_horizontally=True)
     assert geometry.plan.view.horizontalScrollBarPolicy() == core.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert geometry.plan.view.verticalScrollBarPolicy() == core.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert geometry.sizePolicy().verticalPolicy() == widgets.QSizePolicy.Policy.Ignored
@@ -31,9 +31,9 @@ def test_block_geometry_and_related_rows_use_stable_overview_presentation():
     assert geometry.minimumSizeHint().height() == 0
     assert geometry.sizeHint().width() == 700
     assert geometry.minimumWidth() == geometry.MINIMUM_WIDTH == 610
-    assert geometry.maximumWidth() == 800
+    assert geometry.maximumWidth() > 800
 
-    related = BlockRelatedEntityList("Related assessment areas")
+    related = BlockRelatedEntityList("Related assessment areas", expand_viewport=True)
     related.resize(520, 190)
     related.set_rows([
         RelatedEntityRow(
@@ -47,8 +47,9 @@ def test_block_geometry_and_related_rows_use_stable_overview_presentation():
     wrapper = related.list.itemWidget(item)
     holder = related._row_card(item)
     target_width = related._row_available_width() - related.ROW_HORIZONTAL_INSET * 2
-    assert related.sizePolicy().verticalPolicy() == widgets.QSizePolicy.Policy.Fixed
-    assert related.list.minimumHeight() == related.list.maximumHeight()
+    assert related.sizePolicy().verticalPolicy() == widgets.QSizePolicy.Policy.Expanding
+    assert related.list.minimumHeight() >= related.LIST_HEIGHT
+    assert related.list.maximumHeight() > related.list.minimumHeight()
     assert related.list.height() > 0
     assert related.sizeHint().height() > related.list.height()
     assert related.ROW_HORIZONTAL_INSET == 8
@@ -82,14 +83,14 @@ def test_block_geometry_and_related_rows_use_stable_overview_presentation():
     app.processEvents()
 
 
-def test_block_related_list_fits_two_rows_and_scrolls_when_more_exist():
+def test_block_related_list_expands_to_show_an_extra_row_when_vertical_space_is_available():
     widgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     from ui.pages.block_overview_widgets import BlockRelatedEntityList
     from ui.pages.entity_overview_widgets import RelatedEntityRow
 
     app = widgets.QApplication.instance() or widgets.QApplication([])
-    related = BlockRelatedEntityList("Related assessment areas")
-    related.resize(520, 240)
+    related = BlockRelatedEntityList("Related assessment areas", expand_viewport=True)
+    related.resize(520, 360)
     rows = [
         RelatedEntityRow(
             f"AA-{index}", f"Area {index}", f"AA-{index} · 600–630 m",
@@ -98,24 +99,15 @@ def test_block_related_list_fits_two_rows_and_scrolls_when_more_exist():
         for index in range(1, 4)
     ]
 
-    related.set_rows(rows[:2])
+    related.set_rows(rows)
     related.show()
     app.processEvents()
-    second_rect = related.list.visualItemRect(related.list.item(1))
-    assert second_rect.isValid()
-    assert second_rect.bottom() <= (
+    third_rect = related.list.visualItemRect(related.list.item(2))
+    assert third_rect.isValid()
+    assert third_rect.bottom() <= (
         related.list.viewport().rect().bottom() - related.VISIBLE_BOTTOM_MARGIN
     )
-    first_rect = related.list.visualItemRect(related.list.item(0))
-    assert first_rect.height() < related.LIST_HEIGHT / 2
-    assert related.list.viewport().height() >= first_rect.height() + second_rect.height()
-    two_row_height = related.list.height()
-    assert related.list.horizontalScrollBar().maximum() == 0
-
-    related.set_rows(rows)
-    app.processEvents()
-    assert related.list.height() == two_row_height
-    assert related.list.verticalScrollBar().maximum() > 0
+    assert related.list.height() > related.LIST_HEIGHT
     assert related.list.horizontalScrollBar().maximum() == 0
     for index in range(related.list.count()):
         item = related.list.item(index)
@@ -134,27 +126,71 @@ def test_block_related_empty_state_uses_same_content_viewport_without_clipping()
     from ui.pages.block_overview_widgets import BlockRelatedEntityList
 
     app = widgets.QApplication.instance() or widgets.QApplication([])
-    related = BlockRelatedEntityList("Related assessment areas")
+    related = BlockRelatedEntityList("Related assessment areas", expand_viewport=True)
     related.set_rows([], empty_text="No linked assessment areas")
     assert related.list.isHidden()
     assert related.empty_label.text() == "No linked assessment areas"
-    assert related.empty_label.height() == related.LIST_HEIGHT
+    assert related.empty_label.minimumHeight() == related.LIST_HEIGHT
     assert not related.empty_label.isHidden()
     assert related.sizeHint().height() > related.LIST_HEIGHT
     related.close()
     app.processEvents()
 
 
-def test_block_notes_card_fixes_only_editor_viewport():
+def test_block_notes_card_expands_its_editor_viewport_with_available_height():
     widgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     from ui.pages.block_overview_widgets import BlockNotesCard
 
     app = widgets.QApplication.instance() or widgets.QApplication([])
-    notes = BlockNotesCard()
-    assert notes.sizePolicy().verticalPolicy() == widgets.QSizePolicy.Policy.Fixed
-    assert notes.editor.minimumHeight() == notes.editor.maximumHeight() == notes.EDITOR_HEIGHT
+    notes = BlockNotesCard(expand_editor=True)
+    assert notes.sizePolicy().verticalPolicy() == widgets.QSizePolicy.Policy.Expanding
+    assert notes.editor.minimumHeight() == notes.EDITOR_HEIGHT
+    assert notes.editor.maximumHeight() > notes.editor.minimumHeight()
     assert notes.sizeHint().height() > notes.EDITOR_HEIGHT
     notes.close()
+    app.processEvents()
+
+
+def test_block_overview_stack_distributes_tall_row_space_to_all_three_cards():
+    widgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ui.pages.block_overview_widgets import BlockNotesCard, BlockRelatedEntityList
+    from ui.pages.entity_overview_widgets import OverviewKeyValueCard, RelatedEntityRow
+
+    app = widgets.QApplication.instance() or widgets.QApplication([])
+    stack = widgets.QWidget()
+    layout = widgets.QVBoxLayout(stack)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    general = OverviewKeyValueCard("General information")
+    general.setSizePolicy(
+        widgets.QSizePolicy.Policy.Expanding,
+        widgets.QSizePolicy.Policy.Expanding,
+    )
+    general.set_rows((("Blast date", "25.08.2026"),))
+    related = BlockRelatedEntityList("Related assessment areas", expand_viewport=True)
+    related.set_rows([
+        RelatedEntityRow(
+            f"AA-{index}", f"Area {index}", f"AA-{index} · 600–630 m",
+            "Completed", "completed", action_text="Go to ›",
+        )
+        for index in range(1, 4)
+    ])
+    notes = BlockNotesCard(expand_editor=True)
+    layout.addWidget(general, 1)
+    layout.addWidget(related, 2)
+    layout.addWidget(notes, 1)
+
+    stack.resize(520, 560)
+    stack.show()
+    app.processEvents()
+
+    assert general.height() > general.minimumSizeHint().height()
+    assert related.list.height() > related.LIST_HEIGHT
+    assert notes.editor.height() > notes.EDITOR_HEIGHT
+    third_rect = related.list.visualItemRect(related.list.item(2))
+    assert third_rect.bottom() <= related.list.viewport().rect().bottom()
+
+    stack.close()
     app.processEvents()
 
 
@@ -246,15 +282,49 @@ def test_block_page_has_no_layout_feedback_loop_or_tab_reinsertion():
     assert "BlockSectionHost" in text
     assert "self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)" in text
     assert "self.overview_stack_widget.setSizePolicy" in text
-    assert "QSizePolicy.Policy.Fixed" in text
+    assert "QSizePolicy.Policy.Expanding," in text
     assert "BlockRecentActivityCard" in text
-    assert "top.addWidget(self.geometry_card, 0)" in text
+    assert "top.addWidget(self.overview_stack_widget, 4)" in text
+    assert "top.addWidget(self.geometry_card, 6)" in text
     assert "PREFERRED_WIDTH = 700" in helpers
     assert "LIST_HEIGHT = 136" in helpers
     assert "ROW_HORIZONTAL_INSET = 8" in helpers
     assert "viewport().installEventFilter(self)" in helpers
     assert "def _sync_row_widths(self)" in helpers
     assert "BlockNotesCard" in helpers
+
+
+def test_block_overview_top_row_assigns_geometry_the_larger_responsive_share():
+    widgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from ui.pages.block_overview_widgets import BlockGeometryCard
+
+    app = widgets.QApplication.instance() or widgets.QApplication([])
+    host = widgets.QWidget()
+    layout = widgets.QHBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    metadata = widgets.QWidget()
+    metadata.setSizePolicy(
+        widgets.QSizePolicy.Policy.Expanding,
+        widgets.QSizePolicy.Policy.Fixed,
+    )
+    geometry = BlockGeometryCard(expand_horizontally=True)
+    layout.addWidget(metadata, 4)
+    layout.addWidget(geometry, 6)
+
+    host.resize(2200, 700)
+    host.show()
+    app.processEvents()
+
+    assert geometry.sizePolicy().horizontalPolicy() == widgets.QSizePolicy.Policy.Expanding
+    assert geometry.maximumWidth() > 800
+    allocated_width = metadata.width() + geometry.width()
+    assert allocated_width > 0
+    geometry_share = geometry.width() / allocated_width
+    assert 0.55 <= geometry_share <= 0.65
+
+    host.close()
+    app.processEvents()
 
 
 def test_block_sidebar_density_uses_actual_tab_viewport_after_summary_render():

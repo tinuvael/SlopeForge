@@ -4638,7 +4638,8 @@ Continue?</source><translation>Новый горизонт отличается 
     <message><source>Design semantics · default mapping</source><translation>Семантика проекта · соответствие по умолчанию</translation></message>
     <message><source>Deviation</source><translation>Отклонение</translation></message>
     <message><source>Draw Wall Alignment: click vertices, then press Enter or double-click to finish. Esc cancels.</source><translation>Начертите ось борта: щёлкайте вершины, затем нажмите Enter или дважды щёлкните для завершения. Esc отменяет действие.</translation></message>
-    <message><source>Edit Wall Alignment</source><translation>Изменить ось борта</translation></message>
+    <message><source>Change Wall Alignment</source><translation>Изменить ось борта</translation></message>
+    <message><source>Click to place Wall Alignment points</source><translation>Щёлкайте, чтобы задать точки оси борта</translation></message>
     <message><source>Existing value will be kept</source><translation>Текущее значение будет сохранено</translation></message>
     <message><source>H / A</source><translation>H / A</translation></message>
     <message><source>Insufficient data</source><translation>Недостаточно данных</translation></message>
@@ -4662,6 +4663,7 @@ There are no Wall Conformance measurements to apply.</source><translation>Сов
     <message><source>Profile %1</source><translation>Профиль %1</translation></message>
     <message><source>Profile skipped</source><translation>Профиль пропущен</translation></message>
     <message><source>Profile spacing changed. Calculate profiles again.</source><translation>Шаг профилей изменён. Рассчитайте профили повторно.</translation></message>
+    <message><source>Press Enter or double-click to finish · Esc to cancel</source><translation>Нажмите Enter или дважды щёлкните для завершения · Esc — отмена</translation></message>
     <message><source>Q2 %1</source><translation>Q2 %1</translation></message>
     <message><source>R%1 · %2 · %3 triangles</source><translation>R%1 · %2 · %3 треугольников</translation></message>
     <message><source>Range %1 … %2</source><translation>Диапазон %1 … %2</translation></message>

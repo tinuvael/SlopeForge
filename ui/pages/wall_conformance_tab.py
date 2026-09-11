@@ -187,6 +187,7 @@ class WallConformancePlanWidget(QWidget):
     profile_selected = Signal(int)
     alignment_completed = Signal(object)
     alignment_drawing_cancelled = Signal()
+    alignment_draft_changed = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -376,6 +377,7 @@ class WallConformancePlanWidget(QWidget):
         self._drawing_alignment = True
         self.view.setFocus()
         self._refresh_scene()
+        self.alignment_draft_changed.emit(0)
 
     def cancel_alignment_drawing(self) -> None:
         if not self._drawing_alignment:
@@ -383,6 +385,7 @@ class WallConformancePlanWidget(QWidget):
         self._draft_alignment_points = []
         self._drawing_alignment = False
         self._refresh_scene()
+        self.alignment_draft_changed.emit(0)
         self.alignment_drawing_cancelled.emit()
 
     def _handle_workflow_key(self, key: str) -> None:
@@ -393,11 +396,13 @@ class WallConformancePlanWidget(QWidget):
         elif key == "back" and self._draft_alignment_points:
             self._draft_alignment_points.pop()
             self._refresh_scene()
+            self.alignment_draft_changed.emit(len(self._draft_alignment_points))
 
     def _handle_scene_click(self, x: float, y: float) -> None:
         if self._drawing_alignment:
             self._draft_alignment_points.append(PlanPoint(x, y))
             self._refresh_scene()
+            self.alignment_draft_changed.emit(len(self._draft_alignment_points))
             return
         self._select_nearest_profile(x, y)
 
@@ -407,6 +412,7 @@ class WallConformancePlanWidget(QWidget):
         point = PlanPoint(x, y)
         if not self._draft_alignment_points or self._draft_alignment_points[-1] != point:
             self._draft_alignment_points.append(point)
+            self.alignment_draft_changed.emit(len(self._draft_alignment_points))
         self.complete_alignment_drawing()
 
     def complete_alignment_drawing(self) -> WallAlignment | None:
@@ -420,6 +426,7 @@ class WallConformancePlanWidget(QWidget):
         self._draft_alignment_points = []
         self._drawing_alignment = False
         self._refresh_scene()
+        self.alignment_draft_changed.emit(0)
         self.alignment_completed.emit(alignment)
         return alignment
 
@@ -1363,6 +1370,12 @@ class WallConformanceTab(QWidget):
         controls.addWidget(self.clear_alignment_button)
         setup_layout.addLayout(controls)
 
+        self.alignment_hint = QLabel()
+        self.alignment_hint.setWordWrap(True)
+        set_status_role(self.alignment_hint, "info")
+        self.alignment_hint.hide()
+        setup_layout.addWidget(self.alignment_hint)
+
         mapping_row = QHBoxLayout()
         self.semantic_mapping = QLabel()
         self.semantic_mapping.setObjectName("MutedText")
@@ -1393,6 +1406,7 @@ class WallConformanceTab(QWidget):
         self.plan.profile_selected.connect(lambda index: self._select_profile(index + 1))
         self.plan.alignment_completed.connect(self._wall_alignment_completed)
         self.plan.alignment_drawing_cancelled.connect(self._wall_alignment_drawing_cancelled)
+        self.plan.alignment_draft_changed.connect(self._update_alignment_hint)
         splitter.addWidget(self.plan)
 
         profile_host = QWidget()
@@ -1629,7 +1643,7 @@ class WallConformanceTab(QWidget):
         self.clear_alignment_button.setEnabled(has_alignment and not self.read_only)
         self.set_alignment_button.setEnabled(not self.read_only)
         self.set_alignment_button.setText(
-            tr("Edit Wall Alignment") if has_alignment else tr("Set Wall Alignment")
+            tr("Change Wall Alignment") if has_alignment else tr("Set Wall Alignment")
         )
         if alignment is None:
             self.alignment_metadata.setText(tr("Wall Alignment · not set"))
@@ -1701,7 +1715,20 @@ class WallConformanceTab(QWidget):
         self.status.setText(tr("Draw Wall Alignment: click vertices, then press Enter or double-click to finish. Esc cancels."))
         set_status_role(self.status, "info")
 
+    def _update_alignment_hint(self, point_count: int) -> None:
+        if not self.plan.drawing_alignment:
+            self.alignment_hint.clear()
+            self.alignment_hint.hide()
+            return
+        self.alignment_hint.setText(
+            tr("Press Enter or double-click to finish · Esc to cancel")
+            if point_count >= 2
+            else tr("Click to place Wall Alignment points")
+        )
+        self.alignment_hint.show()
+
     def _wall_alignment_completed(self, alignment: WallAlignment) -> None:
+        self._update_alignment_hint(0)
         previous = self._alignment_before_drawing
         try:
             if self.controller is not None and self.area is not None:
@@ -1719,6 +1746,7 @@ class WallConformanceTab(QWidget):
         self._refresh_calculation_availability()
 
     def _wall_alignment_drawing_cancelled(self) -> None:
+        self._update_alignment_hint(0)
         if self.plan.wall_alignment is None:
             self._refresh_calculation_availability()
         else:

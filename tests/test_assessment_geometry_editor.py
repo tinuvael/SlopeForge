@@ -60,12 +60,19 @@ def test_editor_starts_idle_and_navigation_does_not_commit(state, app):
     assert not [item for item in editor.scene.items() if item.data(ASSESSMENT_CONTEXT_ROLE)]
 
 
-def test_existing_area_context_is_faint_noninteractive_and_does_not_change_snap(state, app):
+@pytest.mark.parametrize(
+    ("theme", "expected_color"),
+    (("light", "#526273"), ("dark", "#c5ced8")),
+)
+def test_existing_area_context_is_visible_noninteractive_and_theme_aware(
+    state, app, theme, expected_color
+):
     context = SimpleNamespace(
         assessment_area_id="AA-OTHER", domain_id=2,
         ring=(PlanPoint(1000, 1000), PlanPoint(1010, 1000),
               PlanPoint(1010, 1010), PlanPoint(1000, 1000)),
     )
+    app.setProperty("slopeforgeTheme", theme)
     editor = AssessmentGeometryEditorWidget(state, committer(state))
     snap_before = editor._snap(1, 10.4)
     editor.set_existing_area_context((context,))
@@ -77,10 +84,20 @@ def test_existing_area_context_is_faint_noninteractive_and_does_not_change_snap(
     assert item.zValue() == 15
     assert item.brush().style() == Qt.BrushStyle.NoBrush
     assert item.pen().style() == Qt.PenStyle.DashLine
-    assert item.pen().isCosmetic() and item.pen().widthF() == 1.75
-    assert item.pen().color() == QColor(105, 110, 115, 210)
+    assert item.pen().isCosmetic() and item.pen().widthF() == 2.2
+    assert item.pen().color() == QColor(expected_color)
     assert not (item.flags() & QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable)
     assert editor._snap(1, 10.4) == snap_before
+    inactive_width = item.pen().widthF()
+    inactive_z = item.zValue()
+    editor.start_new_area()
+    editor._drawing_click(1, 10.4)
+    editor._drawing_click(9, 10.4)
+    active = max(editor.scene.items(), key=lambda candidate: candidate.zValue())
+    assert active.pen().style() == Qt.PenStyle.SolidLine
+    assert active.pen().widthF() > inactive_width
+    assert active.zValue() > inactive_z
+    app.setProperty("slopeforgeTheme", "light")
 
 
 def test_creation_page_does_not_auto_start_drawing():

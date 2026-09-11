@@ -147,6 +147,8 @@ def test_dashboard_internal_lists_have_consistent_bordered_rows_and_actions():
     assert "ScrollBarAsNeeded" in widgets
     assert "ScrollBarAlwaysOff" in widgets
     assert "self.list.setMaximumHeight(16777215)" in widgets
+    assert "self.layout.addWidget(self.list, 1)" in widgets
+    assert "self.row_height * self.visible_rows + 4" not in widgets
 
 
 def test_donut_trends_and_activity_cards_are_compact_without_new_engineering_metrics():

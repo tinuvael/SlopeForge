@@ -833,7 +833,7 @@ def test_initial_alignment_workflow_and_clear_preserve_assessment(monkeypatch):
     assert tab.plan.wall_alignment is None
     assert not tab.calculate_button.isEnabled()
     _complete_alignment(tab)
-    assert tab.set_alignment_button.text() == "Edit Wall Alignment"
+    assert tab.set_alignment_button.text() == "Change Wall Alignment"
     assert "2 vertices" in tab.alignment_metadata.text()
     assert tab.calculate_button.isEnabled()
     tab.calculate()
@@ -844,6 +844,32 @@ def test_initial_alignment_workflow_and_clear_preserve_assessment(monkeypatch):
     assert not tab.calculate_button.isEnabled()
     assert tab.set_alignment_button.text() == "Set Wall Alignment"
     assert tab.plan._area_item is not None
+    tab.deleteLater()
+    _app().sendPostedEvents()
+
+
+def test_alignment_hint_tracks_points_and_clears_after_enter(monkeypatch):
+    tab = _tab(monkeypatch)
+    assert tab.set_alignment_button.text() == "Set Wall Alignment"
+    assert not tab.alignment_hint.isVisible()
+
+    tab.show()
+    tab._begin_alignment_drawing()
+    assert tab.alignment_hint.isVisible()
+    assert tab.alignment_hint.text() == "Click to place Wall Alignment points"
+    assert tab.alignment_hint.property("statusRole") == "info"
+    tab.plan._handle_scene_click(0.0, 4.0)
+    assert tab.alignment_hint.text() == "Click to place Wall Alignment points"
+    tab.plan._handle_scene_click(0.0, 16.0)
+    assert tab.alignment_hint.text() == (
+        "Press Enter or double-click to finish · Esc to cancel"
+    )
+
+    tab.plan._handle_workflow_key("enter")
+    assert tab.plan.wall_alignment is not None
+    assert not tab.alignment_hint.isVisible()
+    assert tab.alignment_hint.text() == ""
+    assert tab.set_alignment_button.text() == "Change Wall Alignment"
     tab.deleteLater()
     _app().sendPostedEvents()
 
@@ -886,7 +912,7 @@ def test_saved_alignment_loads_edits_and_clears_through_controller(monkeypatch):
 
     assert controller.loaded == [(area, revision)]
     assert tab.plan.wall_alignment == saved
-    assert tab.set_alignment_button.text() == "Edit Wall Alignment"
+    assert tab.set_alignment_button.text() == "Change Wall Alignment"
     assert "2 vertices" in tab.alignment_metadata.text()
     tab.calculate()
     assert tab.result is not None
@@ -924,6 +950,7 @@ def test_read_only_alignment_controls_do_not_modify_persisted_state(monkeypatch)
     tab._clear_wall_alignment()
     assert not controller.saved and not controller.cleared
     assert tab.plan.wall_alignment == controller.alignment
+    assert not tab.alignment_hint.isVisible()
     tab.deleteLater()
 
 
@@ -1192,16 +1219,22 @@ def test_skipped_station_marker_and_tooltip_are_presentation_only(monkeypatch):
 
 def test_double_click_completes_alignment_and_escape_keeps_existing_alignment(monkeypatch):
     tab = _tab(monkeypatch)
+    tab.show()
+    _app().processEvents()
     _complete_alignment(tab)
     existing = tab.plan.wall_alignment
     tab._begin_alignment_drawing()
     tab.plan._handle_scene_click(1.0, 4.0)
+    assert tab.alignment_hint.text() == "Click to place Wall Alignment points"
     tab.plan._complete_draft_from_double_click(1.0, 16.0)
     assert tab.plan.wall_alignment != existing
+    assert not tab.alignment_hint.isVisible()
     replacement = tab.plan.wall_alignment
     tab._begin_alignment_drawing()
     tab.plan._handle_scene_click(2.0, 4.0)
+    assert tab.alignment_hint.isVisible()
     tab.plan.cancel_alignment_drawing()
     assert tab.plan.wall_alignment == replacement
+    assert not tab.alignment_hint.isVisible()
     tab.deleteLater()
     _app().sendPostedEvents()

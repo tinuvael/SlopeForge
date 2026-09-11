@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+
 import pytest
+# Import for its side effect: initialize SVG icon support before Qt UI tests.
+from PySide6 import QtSvg  # noqa: F401
 from sqlalchemy import create_engine, inspect
+
 from database.env import load_local_env
 from tests.postgres_test_database import is_disposable_test_database
 

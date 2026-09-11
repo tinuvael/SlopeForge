@@ -217,6 +217,23 @@ class ViewportBoundListWidget(QListWidget):
     render is correct as well.
     """
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._preferred_height: int | None = None
+
+    def set_preferred_height(self, height: int) -> None:
+        value = max(1, int(height))
+        if value == self._preferred_height:
+            return
+        self._preferred_height = value
+        self.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        hint = super().sizeHint()
+        if self._preferred_height is not None:
+            hint.setHeight(self._preferred_height)
+        return hint
+
     def _sync_item_widget_geometries(self) -> None:
         if self.count() <= 0:
             return
@@ -287,19 +304,11 @@ class CompactSummaryList(DashboardCard):
             "QListWidget{background:transparent;border:0;margin:0;padding:0;}"
             "QListWidget::item{background:transparent;border:0;outline:0;margin:0;padding:0;}"
         )
-        if self.fill_available:
-            self.list.setSizePolicy(
-                QSizePolicy.Policy.Ignored,
-                QSizePolicy.Policy.Expanding,
-            )
-            self.layout.addWidget(self.list, 1)
-        else:
-            self.list.setSizePolicy(
-                QSizePolicy.Policy.Ignored,
-                QSizePolicy.Policy.Preferred,
-            )
-            self.layout.addWidget(self.list, 0, Qt.AlignmentFlag.AlignTop)
-            self.layout.addStretch(1)
+        self.list.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.layout.addWidget(self.list, 1)
         self.set_rows([])
 
     @staticmethod
@@ -334,13 +343,20 @@ class CompactSummaryList(DashboardCard):
         rows = list(rows)
         if self.fill_available:
             self.list.setMinimumHeight(self.row_height + 4)
+            self.list.set_preferred_height(self.row_height + 4)
             self.list.setMaximumHeight(16777215)
         else:
             visible_height = (
                 self.row_height * min(max(1, len(rows)), self.visible_rows) + 4
             )
-            self.list.setMinimumHeight(visible_height)
-            self.list.setMaximumHeight(self.row_height * self.visible_rows + 4)
+            # One row is the contraction floor at the minimum supported window;
+            # ``visible_rows`` remains the preferred compact baseline.
+            self.list.setMinimumHeight(self.row_height + 4)
+            self.list.set_preferred_height(visible_height)
+            # ``visible_rows`` is the compact baseline, not a ceiling. Let the
+            # surrounding card allocate more viewport height when available;
+            # the list still scrolls when its assigned space is constrained.
+            self.list.setMaximumHeight(16777215)
         if not rows:
             item = QListWidgetItem(tr(empty_text))
             item.setFlags(Qt.ItemFlag.NoItemFlags)

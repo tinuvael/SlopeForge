@@ -165,3 +165,30 @@ def test_persistent_dashboard_rows_rebind_after_pre_layout_wide_geometry(app):
     domain.close()
     lines.close()
     app.processEvents()
+
+
+def test_compact_summary_list_uses_extra_height_and_scrolls_when_constrained(app):
+    rows = [
+        SummaryRow(str(index), f"Area {index}", "Elevation interval", "DAI — · FCI —")
+        for index in range(6)
+    ]
+    card = CompactSummaryList("Areas", visible_rows=3, row_height=ROW_HEIGHT)
+    card.set_rows(rows)
+
+    card.resize(420, 430)
+    card.show()
+    app.processEvents()
+    compact_baseline = ROW_HEIGHT * 3 + 4
+    assert card.list.height() > compact_baseline
+    assert card.list.maximumHeight() == 16777215
+    assert not card.list.verticalScrollBar().isVisible()
+    first = card.list.itemWidget(card.list.item(0))
+    assert first.geometry().width() <= card.list.viewport().width()
+
+    card.setFixedHeight(210)
+    app.processEvents()
+    assert card.list.height() < ROW_HEIGHT * len(rows)
+    assert card.list.verticalScrollBar().isVisible()
+    assert card.geometry().height() == 210
+    card.close()
+    app.processEvents()

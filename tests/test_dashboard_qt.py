@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -167,6 +168,45 @@ def test_domain_interval_summary_filters_plan_without_virtual_navigation(app, mo
     assert page.trend_card.fci.points
     assert page.attention_card.fill_available is True
     assert not hasattr(page, "tabs")
+    page.close()
+    app.processEvents()
+
+
+def test_domain_summary_lists_adapt_across_supported_window_sizes(app, monkeypatch):
+    areas = [
+        AreaRow(
+            f"AREA-{index}", f"Area {index}", f"{index * 10}–{index * 10 + 10}",
+            date(2026, 8, index + 1), "completed", .8, .7, "good_results",
+        )
+        for index in range(6)
+    ]
+    snap = replace(snapshot(), areas=areas)
+    monkeypatch.setattr(
+        "ui.pages.dashboards.domain_dashboard.DashboardRepository.domain_snapshot",
+        lambda *_: snap,
+    )
+    _stub_domain_version(monkeypatch)
+    context = SimpleNamespace(
+        session_factory=lambda: None,
+        current_user=SimpleNamespace(can_edit=False, id=1),
+    )
+    page = DomainDashboardPage(context, 7, "North")
+    page.show()
+    compact_baseline = page.interval_summary.row_height * 3 + 4
+    observed_heights = []
+
+    for width, height in ((1400, 900), (1920, 1080), (2560, 1440)):
+        page.resize(width, height)
+        app.processEvents()
+        for card in (page.interval_summary, page.latest_assessments):
+            assert card.list.geometry().bottom() <= card.contentsRect().bottom()
+            assert card.list.height() >= card.row_height + 4
+        observed_heights.append(page.interval_summary.list.height())
+
+    assert observed_heights == sorted(observed_heights)
+    assert observed_heights[-1] > compact_baseline
+    assert page.interval_summary.list.verticalScrollBar().isVisible() is False
+    assert page.latest_assessments.list.verticalScrollBar().isVisible() is False
     page.close()
     app.processEvents()
 

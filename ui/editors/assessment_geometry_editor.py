@@ -2,9 +2,9 @@
 from collections.abc import Callable
 from math import hypot
 
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainterPath, QPen
-from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsScene,
+from PySide6.QtWidgets import (QApplication, QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsScene,
                               QMessageBox, QVBoxLayout, QWidget)
 
 from app.localization import tr
@@ -174,13 +174,28 @@ class AssessmentGeometryEditorWidget(QWidget):
         if key=="back": self.undo_vertex()
         elif key=="enter" and self.workflow_state=="DRAWING": self.finish_polygon()
     @staticmethod
+    def _dark_theme():
+        app = QApplication.instance()
+        return bool(app is not None and app.property("slopeforgeTheme") == "dark")
+    @classmethod
+    def _existing_area_pen(cls):
+        # A neutral dashed boundary remains distinct from both Project Lines and
+        # the solid blue/orange active boundary without adding visual noise.
+        color = QColor("#c5ced8") if cls._dark_theme() else QColor("#526273")
+        pen = QPen(color, 2.2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        return pen
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange):
+            self.draw_geometry()
+    @staticmethod
     def _segment_points(s): return s.frozen_trace_xyz if isinstance(s,ProjectLineSpan) else (s.start_point,s.end_point)
     def draw_geometry(self):
         self.scene.clear(); dataset=self.state.active_dataset()
         if dataset and self._show_project_lines:
             for line in dataset.lines: self._draw_points(line.points,QPen(QColor(125,140,150),1),10)
-        context_pen=QPen(QColor(105,110,115,210),1.75,Qt.PenStyle.DashLine)
-        context_pen.setCosmetic(True)
+        context_pen=self._existing_area_pen()
         for area in self._existing_area_context:
             self._draw_points(area.ring,context_pen,15,role=ASSESSMENT_CONTEXT_ROLE)
         if self.selected_area: self._draw_points(self.selected_area.final_geometry_frozen.ring,QPen(QColor(20,110,190),3),20)

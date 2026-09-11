@@ -83,6 +83,8 @@ class Header(QWidget):
         self.search.setMaximumWidth(380)
 
         self.analysis_button = QPushButton(tr("Analysis"))
+        self.analysis_button.setObjectName("analysisModeButton")
+        self.analysis_button.setCheckable(True)
         self.analysis_button.setIcon(ui_icon("analytics"))
         self.analysis_button.clicked.connect(self.analysis_requested)
         self.report_button = QPushButton(tr("Report"))
@@ -160,6 +162,18 @@ class Header(QWidget):
             tr("Hide navigation") if visible else tr("Show navigation")
         )
         self.navigation_button.setAccessibleName(self.navigation_button.toolTip())
+
+    def set_analysis_active(self, active: bool):
+        self.analysis_button.setChecked(active)
+        self.analysis_button.setToolTip(
+            tr("Return to project workspace") if active else tr("Open Analysis workspace")
+        )
+        self.analysis_button.setAccessibleName(self.analysis_button.toolTip())
+        if active:
+            for control in (self.add_button, self.archive_button, self.report_button, self.search):
+                control.setEnabled(False)
+        else:
+            self.search.setEnabled(True)
 
     def open_settings(self):
         dialog = SettingsDialog(self.context, self)

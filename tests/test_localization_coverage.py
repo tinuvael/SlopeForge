@@ -239,6 +239,21 @@ def test_active_ui_has_no_runtime_russian_fallback_bridge():
     assert "RUSSIAN_RUNTIME_FALLBACKS" not in source
 
 
+def test_analysis_metadata_and_staged_dataset_labels_are_localized():
+    from application.analysis.catalog import ANALYSIS_DATASETS
+
+    catalogue = russian_catalog()
+    required = {
+        dataset.label for dataset in ANALYSIS_DATASETS
+    } | {
+        dataset.row_semantics for dataset in ANALYSIS_DATASETS
+    } | {
+        field.label for dataset in ANALYSIS_DATASETS for field in dataset.fields
+    }
+    assert sorted(source for source in required if source not in INVARIANTS
+                  and not catalogue.get(source)) == []
+
+
 def test_event_type_selector_translates_display_but_keeps_canonical_user_data():
     source = (ROOT / "ui" / "dialogs" / "blast_event_dialog.py").read_text(encoding="utf-8")
     assert 'addItem(tr("Production"), "production")' in source

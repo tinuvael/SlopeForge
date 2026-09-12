@@ -40,6 +40,7 @@ APPLICATION_STYLESHEET = """
 QMainWindow, QDialog { background: #f4f6f9; color: #111827; }
 QWidget#DashboardPage { background: #f4f6f9; }
 QWidget#assessmentWorkflowPage { background: #f4f6f9; }
+QWidget#AnalysisPage { background: #f4f6f9; }
 QFrame#CardFrame, QFrame#DashboardCard, QFrame#DashboardMetricCard,
 QFrame#DashboardHeaderCard, QFrame#ConnectionCard, QFrame#EngineeringCard,
 QFrame#CriterionCard, QFrame#ResultCard {
@@ -93,6 +94,8 @@ QPushButton[role="primary"] { color: white; background: #1261a0; border: 1px sol
 QPushButton[role="primary"]:hover { background: #0b4f86; }
 QPushButton[role="secondary"] { color: #1f2937; background: #ffffff; border: 1px solid #c5ccd5; border-radius: 5px; }
 QPushButton[role="secondary"]:hover { color: #1261a0; border-color: #1261a0; background: #f8fafc; }
+QPushButton#analysisModeButton:checked { color: #ffffff; background: #1261a0; border-color: #1261a0; font-weight: 600; }
+QPushButton#analysisModeButton:checked:hover { background: #0b4f86; border-color: #0b4f86; }
 QPushButton[role="link"] { color: #1261a0; background: transparent; border: 0; padding: 2px 4px; font-weight: 600; }
 QPushButton[role="link"]:hover { color: #0b4f86; text-decoration: underline; }
 QPushButton[role="danger"] { color: #a33a32; background: #ffffff; border: 1px solid #d9a6a2; border-radius: 5px; }
@@ -171,6 +174,36 @@ QTableWidget#StandardTable::item { border-bottom: 1px solid #edf0f4; padding: 5p
 QTableWidget#StandardTable::item:hover { background: #f3f7fc; }
 QTableWidget#StandardTable::item:selected { background: #eaf3ff; color: #111827; }
 QLabel#EmptyState { color: #6b7280; background: #f8fafc; border: 1px dashed #c5ccd5; border-radius: 7px; padding: 24px; }
+
+QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel {
+    background: #ffffff; border: 1px solid #d7dde6; border-radius: 7px;
+}
+QLabel#AnalysisTitle { color: #111827; font-size: 18px; font-weight: 700; }
+QLabel#AnalysisSectionTitle { color: #374151; font-weight: 700; }
+QLabel#AnalysisRecordCount { color: #1261a0; font-weight: 700; padding-left: 10px; }
+QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics { color: #6b7280; }
+QScrollArea#AnalysisFilterScroll { background: transparent; border: 0; }
+QScrollArea#AnalysisFilterScroll > QWidget > QWidget { background: transparent; }
+QToolButton#AnalysisRemoveFilterButton {
+    min-width: 22px; min-height: 22px; border: 0; border-radius: 4px;
+    color: #6b7280; background: transparent; font-weight: 700;
+}
+QToolButton#AnalysisRemoveFilterButton:hover { color: #111827; background: #edf2f7; }
+QWidget#AnalysisPage QComboBox, QWidget#AnalysisPage QLineEdit, QWidget#AnalysisPage QDateEdit {
+    min-height: 26px; background: #ffffff; color: #111827;
+    border: 1px solid #cfd6df; border-radius: 5px; padding: 1px 7px;
+}
+QTableView#AnalysisDataTable {
+    background: #ffffff; alternate-background-color: #f8fafc;
+    border: 1px solid #d7dde6; border-radius: 7px; outline: 0;
+    gridline-color: #edf0f4; selection-background-color: #eaf3ff;
+    selection-color: #111827;
+}
+QTableView#AnalysisDataTable QHeaderView::section {
+    background: #f1f4f8; color: #374151; border: 0;
+    border-right: 1px solid #e1e6ed; border-bottom: 1px solid #cfd6df;
+    padding: 7px 9px; font-weight: 600;
+}
 
 QWidget#EngineeringWorkspace, QWidget#geomechanicsWorkspace { background: #f4f6f9; }
 QWidget#EngineeringWorkspace QGroupBox#drillingGroupCard,
@@ -268,6 +301,19 @@ QToolButton#SplitSaveButton::menu-button:disabled {{ background-color: #9bb7cc; 
 QToolButton#SplitSaveButton::menu-arrow {{
     image: url("{_SPLIT_SAVE_CHEVRON}"); width: 12px; height: 12px;
 }}
+QWidget#AnalysisPage QComboBox {{ padding: 1px 32px 1px 7px; }}
+QWidget#AnalysisPage QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 26px; border: 0; border-left: 1px solid #e1e6ed;
+    background: #f8fafc; border-top-right-radius: 5px; border-bottom-right-radius: 5px;
+}}
+QWidget#AnalysisPage QComboBox::down-arrow {{
+    image: url("{_COMBO_CHEVRON}"); width: 12px; height: 12px;
+}}
+QWidget#AnalysisPage QComboBox:hover::drop-down {{
+    background: #eef3f8; border-left-color: #c5d4e4;
+}}
+QWidget#AnalysisPage QComboBox:focus::drop-down {{ border-left-color: #9bc2e8; }}
 QDialog#StandardEntityDialog QComboBox::drop-down {{
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 25px; border: 0; border-left: 1px solid #e1e6ed;

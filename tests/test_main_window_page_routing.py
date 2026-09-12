@@ -219,16 +219,24 @@ def test_successful_area_edit_has_dedicated_unguarded_completion_path():
     assert "open_area_from_tree" in cancel
 
 
-def test_analysis_button_opens_persistent_placeholder_before_report():
+def test_analysis_button_toggles_persistent_full_width_workspace_before_report():
     header=source("ui/header.py")
     main=source("ui/main_window.py")
     page=source("ui/pages/analysis_page.py")
+    filters=source("ui/analysis/filters.py")
+    data_table=source("ui/analysis/data_table.py")
     assert "analysis_requested" in header and "Signal()" in header
     assert 'QPushButton(tr("Analysis"))' in header
     assert 'self.analysis_button.setIcon(ui_icon("analytics"))' in header
     assert header.index("layout.addWidget(self.analysis_button)") < header.index("layout.addWidget(self.report_button)")
-    assert "AnalysisPlaceholderPage" in main
+    assert "AnalysisPage" in main
     assert "analysis_requested.connect(self._open_analysis)" in main
-    assert "self._activate_page(self.analysis_page)" in main
-    assert "current is self.analysis_page" in main
-    assert 'tr("Analysis section is under development.")' in page
+    assert "self.workspace_stack.addWidget(self.normal_workspace)" in main
+    assert "self.workspace_stack.addWidget(self.analysis_page)" in main
+    assert "self._set_analysis_mode(False)" in main
+    assert "self._set_analysis_mode(True)" in main
+    assert "AnalysisDataTable" in page
+    assert "FilterSpec" in page
+    assert "AnalysisFilterPanel" in page
+    assert 'setObjectName("AnalysisDataTable")' in data_table
+    assert 'tr("+ Add filter")' in filters

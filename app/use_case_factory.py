@@ -31,6 +31,8 @@ from infrastructure.db.charge_presets import SqlAlchemyChargePresetPersistence
 from repositories.assessment_area_context_repository import AssessmentAreaContextRepository
 from repositories.project_surface_repository import ProjectSurfaceDatasetRepository
 from repositories.drillhole_dataset_repository import BlastEventDrillholeDatasetRepository
+from application.services.analysis import AnalysisDatasetService
+from infrastructure.db.analysis_dataset_provider import SqlAlchemyAnalysisDatasetProvider
 
 
 def create_drillhole_dataset_service(context):
@@ -112,3 +114,9 @@ def create_charge_presets(context, site_id=None):
     if scope is None: raise ValueError("Project is required for charge presets")
     return ChargePresets(SqlAlchemyChargePresetPersistence(context.session_factory),
                          site_id=scope, can_edit=context.current_user.can_edit)
+
+
+def create_analysis_dataset_service(context):
+    return AnalysisDatasetService(
+        SqlAlchemyAnalysisDatasetProvider(context.session_factory)
+    )

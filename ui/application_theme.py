@@ -88,7 +88,8 @@ DARK_STYLESHEET = f"""
 QMainWindow, QDialog,
 QWidget#DashboardPage, QWidget#assessmentWorkflowPage,
 QDialog#DomainGeometryEditor,
-QWidget#EngineeringWorkspace, QWidget#geomechanicsWorkspace {{
+QWidget#EngineeringWorkspace, QWidget#geomechanicsWorkspace,
+QWidget#AnalysisPage {{
     background: {DarkColor.APP_BACKGROUND}; color: {DarkColor.TEXT_PRIMARY};
 }}
 QToolTip {{
@@ -154,6 +155,8 @@ QPushButton[role="primary"]:pressed {{ background: #286a9f; border-color: #286a9
 QPushButton[role="secondary"] {{ color: {DarkColor.TEXT_PRIMARY}; background: {DarkColor.SURFACE}; border-color: {DarkColor.SEPARATOR}; }}
 QPushButton[role="secondary"]:hover {{ color: {DarkColor.ACCENT_HOVER}; border-color: {DarkColor.ACCENT}; background: {DarkColor.SURFACE_SUBTLE}; }}
 QPushButton[role="secondary"]:pressed {{ color: {DarkColor.ACCENT_HOVER}; background: {DarkColor.SURFACE_ELEVATED}; border-color: {DarkColor.ACCENT}; }}
+QPushButton#analysisModeButton:checked {{ color: #ffffff; background: #2f78b5; border-color: #2f78b5; font-weight: 600; }}
+QPushButton#analysisModeButton:checked:hover {{ background: #3b8ac9; border-color: #3b8ac9; }}
 QPushButton[role="link"] {{ color: {DarkColor.ACCENT}; }}
 QPushButton[role="link"]:hover {{ color: {DarkColor.ACCENT_HOVER}; }}
 QPushButton[role="danger"] {{ color: {DarkColor.ERROR}; background: {DarkColor.SURFACE}; border-color: #754247; }}
@@ -251,6 +254,46 @@ QTableWidget#StandardTable::item {{ border-bottom-color: #303946; }}
 QTableWidget#StandardTable::item:hover {{ background: {DarkColor.SURFACE_ELEVATED}; }}
 QTableWidget#StandardTable::item:selected {{ background: {DarkColor.SELECTED}; color: {DarkColor.TEXT_PRIMARY}; }}
 QLabel#EmptyState {{ color: {DarkColor.TEXT_MUTED}; background: {DarkColor.SURFACE_SUBTLE}; border-color: {DarkColor.SEPARATOR}; }}
+QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel {{
+    background: {DarkColor.SURFACE}; border-color: {DarkColor.BORDER};
+}}
+QLabel#AnalysisTitle {{ color: {DarkColor.TEXT_PRIMARY}; }}
+QLabel#AnalysisSectionTitle {{ color: {DarkColor.TEXT_SECONDARY}; }}
+QLabel#AnalysisRecordCount {{ color: {DarkColor.ACCENT_HOVER}; }}
+QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics {{ color: {DarkColor.TEXT_MUTED}; }}
+QScrollArea#AnalysisFilterScroll, QScrollArea#AnalysisFilterScroll > QWidget > QWidget {{ background: transparent; border: 0; }}
+QToolButton#AnalysisRemoveFilterButton {{
+    color: {DarkColor.TEXT_MUTED}; background: transparent; border: 0;
+}}
+QToolButton#AnalysisRemoveFilterButton:hover {{
+    color: {DarkColor.TEXT_PRIMARY}; background: {DarkColor.SURFACE_ELEVATED};
+}}
+QWidget#AnalysisPage QComboBox, QWidget#AnalysisPage QLineEdit, QWidget#AnalysisPage QDateEdit {{
+    background: {DarkColor.SURFACE}; color: {DarkColor.TEXT_PRIMARY}; border-color: {DarkColor.BORDER};
+}}
+QWidget#AnalysisPage QComboBox {{ padding: 1px 32px 1px 7px; }}
+QWidget#AnalysisPage QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 26px; border: 0; border-left: 1px solid {DarkColor.BORDER};
+    background: {DarkColor.SURFACE_SUBTLE};
+    border-top-right-radius: 5px; border-bottom-right-radius: 5px;
+}}
+QWidget#AnalysisPage QComboBox::down-arrow {{
+    image: url("{_DARK_COMBO_CHEVRON}"); width: 12px; height: 12px;
+}}
+QWidget#AnalysisPage QComboBox:hover::drop-down {{
+    background: {DarkColor.SURFACE_ELEVATED}; border-left-color: {DarkColor.SEPARATOR};
+}}
+QWidget#AnalysisPage QComboBox:focus::drop-down {{ border-left-color: {DarkColor.FOCUS}; }}
+QTableView#AnalysisDataTable {{
+    background: {DarkColor.SURFACE}; alternate-background-color: {DarkColor.SURFACE_SUBTLE};
+    border-color: {DarkColor.BORDER}; gridline-color: #303946;
+    selection-background-color: {DarkColor.SELECTED}; selection-color: {DarkColor.TEXT_PRIMARY};
+}}
+QTableView#AnalysisDataTable QHeaderView::section {{
+    background: {DarkColor.SURFACE_ELEVATED}; color: {DarkColor.TEXT_SECONDARY};
+    border-right-color: {DarkColor.BORDER}; border-bottom-color: {DarkColor.BORDER};
+}}
 
 QGraphicsView#DashboardPlanView, QGraphicsView#BoreholeView {{
     background: {DarkColor.SURFACE_SUBTLE}; border: 1px solid {DarkColor.BORDER}; border-radius: 5px;

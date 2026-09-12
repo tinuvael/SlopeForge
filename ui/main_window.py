@@ -4,7 +4,7 @@ from ui.presentation_labels import domain_message
 from PySide6.QtWidgets import QMainWindow,QMessageBox,QStackedWidget,QVBoxLayout,QHBoxLayout,QWidget
 from app.config import APP_NAME,APP_VERSION
 from app.qt import apply_window_icon
-from app.use_case_factory import (create_blast_event_use_case, create_domain_use_case,
+from app.use_case_factory import (create_analysis_dataset_service, create_blast_event_use_case, create_domain_use_case,
     create_generate_project_report_use_case, create_project_navigation_queries,
     create_project_use_case)
 from application.use_cases.create_blast_event import CreateBlastEventCommand
@@ -12,7 +12,7 @@ from application.use_cases.create_domain import CreateDomainCommand
 from application.use_cases.create_project import CreateProjectCommand
 from app.context import AppContext
 from ui.header import Header
-from ui.pages.analysis_page import AnalysisPlaceholderPage
+from ui.pages.analysis_page import AnalysisPage
 from ui.pages.block_page import BlockPage
 from ui.widgets.project_tree import ProjectTree
 
@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
         self.selected_site_id=None; self.selected_site_name=None; self.selected_domain_id=None; self.selected_domain_name=None; self.selected_block_id=None; self.selected_contour_event_id=None; self.selected_assessment_area_id=None
         self.assessment_page=None; self.assessment_domain_id=None; self.assessment_site_id=None
         self.area_page=None; self.contour_page=None
-        self.tree=ProjectTree(context); self.tree.setMaximumWidth(320); self.block_page=BlockPage(context); self.analysis_page=AnalysisPlaceholderPage(); self.page=self.block_page; self.page_stack=QStackedWidget(); self.page_stack.addWidget(self.block_page); self.page_stack.addWidget(self.analysis_page)
+        self.tree=ProjectTree(context); self.tree.setMaximumWidth(320); self.block_page=BlockPage(context); self.analysis_page=AnalysisPage(create_analysis_dataset_service(context)); self.page=self.block_page; self.page_stack=QStackedWidget(); self.page_stack.addWidget(self.block_page)
         self.header=Header(context); self._navigation_visible=True; self.create_blast_event=create_blast_event_use_case(context)
         self.create_project=create_project_use_case(context); self.create_domain=create_domain_use_case(context)
         self.navigation_queries=create_project_navigation_queries(context)
@@ -32,6 +32,7 @@ class MainWindow(QMainWindow):
         self.tree.site_selected.connect(self.select_site); self.tree.domain_selected.connect(self.select_domain); self.tree.block_selected.connect(self.open_block_from_tree); self.tree.contour_event_selected.connect(self.open_contour_from_tree); self.tree.assessment_area_selected.connect(self.open_area_from_tree)
         self.header.add_project_requested.connect(self._add_project); self.header.add_domain_requested.connect(self._add_domain); self.header.add_blast_event_requested.connect(self._add_blast_event); self.header.add_assessment_area_requested.connect(self._add_area)
         self.header.analysis_requested.connect(self._open_analysis); self.header.report_requested.connect(self._project_report)
+        self.analysis_page.source_requested.connect(self._open_analysis_source)
         self.header.navigation_toggle_requested.connect(self._toggle_navigation)
         self.header.catalogue_changed.connect(self._refresh_explosive_catalogue)
         self.header.search.textChanged.connect(self.tree.set_search_query)
@@ -40,7 +41,10 @@ class MainWindow(QMainWindow):
         self.block_page.data_changed.connect(self.refresh_project_data)
         self.block_page.metadata_saved.connect(lambda entity_id,target_id:self._metadata_move_saved("block",entity_id,target_id))
         self.block_page.related_assessment_requested.connect(self._open_related_assessment)
-        central=QWidget(); self.setCentralWidget(central); root=QVBoxLayout(central); root.addWidget(self.header); body=QHBoxLayout(); body.addWidget(self.tree,1); body.addWidget(self.page_stack,4); root.addLayout(body); self._update_add()
+        central=QWidget(); self.setCentralWidget(central); root=QVBoxLayout(central); root.addWidget(self.header)
+        self.normal_workspace=QWidget(); body=QHBoxLayout(self.normal_workspace); body.setContentsMargins(0,0,0,0); body.addWidget(self.tree,1); body.addWidget(self.page_stack,4)
+        self.workspace_stack=QStackedWidget(); self.workspace_stack.addWidget(self.normal_workspace); self.workspace_stack.addWidget(self.analysis_page); root.addWidget(self.workspace_stack,1)
+        self._analysis_active=False; self.header.set_analysis_active(False); self._update_add()
     def _toggle_navigation(self):
         self._navigation_visible=not self._navigation_visible
         self.tree.setVisible(self._navigation_visible)
@@ -54,10 +58,45 @@ class MainWindow(QMainWindow):
         if contour is not None: editors.append(contour.editor)
         for editor in editors: editor.editor.set_explosive_products(products)
     def _open_analysis(self):
-        if not self._guard_leave(): return False
-        self._activate_page(self.analysis_page)
-        self.header.set_archive_context(False)
+        if self._analysis_active:
+            self._set_analysis_mode(False)
+            return True
+        guarded_page=self.assessment_page
+        guarded_domain_id=self.assessment_domain_id
+        guarded_site_id=self.assessment_site_id
+        if not self._guard_leave():
+            self.header.set_analysis_active(False)
+            return False
+        if guarded_page is not None and self.page_stack.indexOf(guarded_page)>=0:
+            self.assessment_page=guarded_page
+            self.assessment_domain_id=guarded_domain_id
+            self.assessment_site_id=guarded_site_id
+        self._set_analysis_mode(True)
+        self.analysis_page.reload()
         return True
+    def _set_analysis_mode(self, active):
+        self._analysis_active=bool(active)
+        self.workspace_stack.setCurrentWidget(self.analysis_page if active else self.normal_workspace)
+        self.header.set_analysis_active(active)
+        if active:
+            self.header.set_archive_context(False)
+        else:
+            self._update_add()
+            self._restore_archive_context()
+    def _restore_archive_context(self):
+        if self.selected_block_id is not None and self.block_page.current_block is not None:
+            self.header.set_archive_context(True,self.block_page.current_block.is_archived)
+        elif self.selected_assessment_area_id is not None and self.area_page is not None:
+            self.header.set_archive_context(True,self.area_page.area.is_archived)
+        elif self.selected_contour_event_id is not None and self.contour_page is not None:
+            self.header.set_archive_context(True,self.contour_page.blast_event.is_archived)
+        else:
+            self.header.set_archive_context(False)
+    def _open_analysis_source(self, source):
+        if source.entity_type != "assessment_area" or source.domain_id is None or source.site_id is None:return
+        self._set_analysis_mode(False)
+        domain=self.navigation_queries.get_domain_context(source.domain_id)
+        self.open_area_from_tree(source.entity_id,source.domain_id,source.site_id,domain.domain_name)
     def _show(self,page):
         if not self._guard_leave(): return False
         self._activate_page(page)
@@ -68,7 +107,7 @@ class MainWindow(QMainWindow):
         self.page_stack.setCurrentWidget(page)
     def _dispose_transient_page(self, incoming):
         current = self.page_stack.currentWidget()
-        if current is None or current is incoming or current is self.block_page or current is self.analysis_page:
+        if current is None or current is incoming or current is self.block_page:
             return
         for attribute in ("assessment_page", "area_page", "contour_page"):
             if getattr(self, attribute, None) is current:

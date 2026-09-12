@@ -271,6 +271,20 @@ QToolButton#AnalysisRemoveFilterButton:hover {{
 QWidget#AnalysisPage QComboBox, QWidget#AnalysisPage QLineEdit, QWidget#AnalysisPage QDateEdit {{
     background: {DarkColor.SURFACE}; color: {DarkColor.TEXT_PRIMARY}; border-color: {DarkColor.BORDER};
 }}
+QWidget#AnalysisPage QComboBox {{ padding: 1px 32px 1px 7px; }}
+QWidget#AnalysisPage QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 26px; border: 0; border-left: 1px solid {DarkColor.BORDER};
+    background: {DarkColor.SURFACE_SUBTLE};
+    border-top-right-radius: 5px; border-bottom-right-radius: 5px;
+}}
+QWidget#AnalysisPage QComboBox::down-arrow {{
+    image: url("{_DARK_COMBO_CHEVRON}"); width: 12px; height: 12px;
+}}
+QWidget#AnalysisPage QComboBox:hover::drop-down {{
+    background: {DarkColor.SURFACE_ELEVATED}; border-left-color: {DarkColor.SEPARATOR};
+}}
+QWidget#AnalysisPage QComboBox:focus::drop-down {{ border-left-color: {DarkColor.FOCUS}; }}
 QTableView#AnalysisDataTable {{
     background: {DarkColor.SURFACE}; alternate-background-color: {DarkColor.SURFACE_SUBTLE};
     border-color: {DarkColor.BORDER}; gridline-color: #303946;

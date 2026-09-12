@@ -187,7 +187,7 @@ def test_service_validates_sort_metadata_and_provider_sorts_before_limit():
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, QEvent, Qt
 
 from ui.header import Header
 from ui.main_window import MainWindow
@@ -243,6 +243,61 @@ def test_analysis_workspace_has_light_and_dark_theme_contracts():
     ):
         assert selector in light
         assert selector in dark
+
+
+def test_analysis_combo_boxes_have_dedicated_theme_chevrons_and_geometry():
+    from pathlib import Path
+
+    light = Path("ui/theme.py").read_text(encoding="utf-8")
+    dark = Path("ui/application_theme.py").read_text(encoding="utf-8")
+    for stylesheet in (light, dark):
+        assert "QWidget#AnalysisPage QComboBox::drop-down" in stylesheet
+        assert "QWidget#AnalysisPage QComboBox::down-arrow" in stylesheet
+        assert "subcontrol-origin: padding" in stylesheet
+        assert "subcontrol-position: top right" in stylesheet
+        assert "padding: 1px 32px 1px 7px" in stylesheet
+        assert "width: 26px" in stylesheet
+        assert "width: 12px; height: 12px" in stylesheet
+    assert 'image: url("{_COMBO_CHEVRON}")' in light
+    assert "chevron-down.svg" in light
+    assert 'image: url("{_DARK_COMBO_CHEVRON}")' in dark
+    assert "chevron-down-white.svg" in dark
+
+
+def test_analysis_button_icon_tracks_active_and_runtime_theme_state():
+    app = _app()
+    previous_theme = app.property("slopeforgeTheme")
+    app.setProperty("slopeforgeTheme", "light")
+    header = Header(SimpleNamespace(current_user=SimpleNamespace(can_edit=True)))
+
+    def icon_image():
+        assert not header.analysis_button.icon().isNull()
+        pixmap = header.analysis_button.icon().pixmap(20, 20)
+        assert not pixmap.isNull()
+        return pixmap.toImage()
+
+    try:
+        light_inactive = icon_image()
+        header.set_analysis_active(True)
+        light_active = icon_image()
+        assert light_active != light_inactive
+
+        header.set_analysis_active(False)
+        assert icon_image() == light_inactive
+
+        app.setProperty("slopeforgeTheme", "dark")
+        header.changeEvent(QEvent(QEvent.Type.StyleChange))
+        dark_inactive = icon_image()
+        assert dark_inactive != light_inactive
+
+        for _ in range(5):
+            header.set_analysis_active(True)
+            assert icon_image() == light_active
+            header.set_analysis_active(False)
+            assert icon_image() == dark_inactive
+    finally:
+        app.setProperty("slopeforgeTheme", previous_theme)
+        header.close()
 
 
 def test_compact_filters_add_remove_prevent_duplicates_and_reset():

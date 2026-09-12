@@ -1,7 +1,14 @@
 from app.localization import tr
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QMenu, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QWidget,
+)
 
 from app.icons.ui.ui_icons import ui_icon
 from ui.settings_dialog import SettingsDialog
@@ -86,6 +93,7 @@ class Header(QWidget):
         self.analysis_button.setObjectName("analysisModeButton")
         self.analysis_button.setCheckable(True)
         self.analysis_button.setIcon(ui_icon("analytics"))
+        self.analysis_button.toggled.connect(self._sync_analysis_icon)
         self.analysis_button.clicked.connect(self.analysis_requested)
         self.report_button = QPushButton(tr("Report"))
         self.report_button.setIcon(ui_icon("report","blue"))
@@ -115,6 +123,7 @@ class Header(QWidget):
             self.settings,
         ):
             set_button_role(button, "secondary")
+        self._sync_analysis_icon()
 
         self.search_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
         self.search_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -174,6 +183,24 @@ class Header(QWidget):
                 control.setEnabled(False)
         else:
             self.search.setEnabled(True)
+
+    def _sync_analysis_icon(self, *_args) -> None:
+        icon = ui_icon("analytics")
+        if self.analysis_button.isChecked():
+            icon = high_contrast_icon(icon)
+        else:
+            app = QApplication.instance()
+            if app is not None and app.property("slopeforgeTheme") == "dark":
+                icon = high_contrast_icon(icon, "#d5dbe3")
+        self.analysis_button.setIcon(icon)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if (
+            hasattr(self, "analysis_button")
+            and event.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange)
+        ):
+            self._sync_analysis_icon()
 
     def open_settings(self):
         dialog = SettingsDialog(self.context, self)

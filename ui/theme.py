@@ -301,6 +301,19 @@ QToolButton#SplitSaveButton::menu-button:disabled {{ background-color: #9bb7cc; 
 QToolButton#SplitSaveButton::menu-arrow {{
     image: url("{_SPLIT_SAVE_CHEVRON}"); width: 12px; height: 12px;
 }}
+QWidget#AnalysisPage QComboBox {{ padding: 1px 32px 1px 7px; }}
+QWidget#AnalysisPage QComboBox::drop-down {{
+    subcontrol-origin: padding; subcontrol-position: top right;
+    width: 26px; border: 0; border-left: 1px solid #e1e6ed;
+    background: #f8fafc; border-top-right-radius: 5px; border-bottom-right-radius: 5px;
+}}
+QWidget#AnalysisPage QComboBox::down-arrow {{
+    image: url("{_COMBO_CHEVRON}"); width: 12px; height: 12px;
+}}
+QWidget#AnalysisPage QComboBox:hover::drop-down {{
+    background: #eef3f8; border-left-color: #c5d4e4;
+}}
+QWidget#AnalysisPage QComboBox:focus::drop-down {{ border-left-color: #9bc2e8; }}
 QDialog#StandardEntityDialog QComboBox::drop-down {{
     subcontrol-origin: padding; subcontrol-position: top right;
     width: 25px; border: 0; border-left: 1px solid #e1e6ed;

@@ -15,6 +15,7 @@ from application.analysis.models import (
     FilterSpec,
     FilteredDataset,
     SourceReference,
+    SortSpec,
 )
 from database import assessment_models as assessment
 from database.models import Domain, Site
@@ -67,11 +68,6 @@ class SqlAlchemyAnalysisDatasetProvider:
                 FilterChoice(area_id, f"{project_name} / {domain_name} / {area_name}")
                 for area_id, area_name, domain_name, project_name in area_rows
             )
-            statuses = self._choices(
-                session,
-                assessment.AssessmentAreaEvaluationRevision.status,
-                order_by=(assessment.AssessmentAreaEvaluationRevision.status,),
-            )
             quadrants = self._choices(
                 session,
                 assessment.AssessmentAreaEvaluationRevision.result_quadrant,
@@ -88,12 +84,17 @@ class SqlAlchemyAnalysisDatasetProvider:
             "project": projects,
             "domain": domains,
             "assessment_area": areas,
-            "status": statuses,
             "result_quadrant": quadrants,
             "inspector": inspectors,
         }
 
-    def load(self, filter_spec: FilterSpec, *, limit: int) -> FilteredDataset:
+    def load(
+        self,
+        filter_spec: FilterSpec,
+        *,
+        sort_spec: SortSpec | None = None,
+        limit: int,
+    ) -> FilteredDataset:
         self._require_assessment_results(filter_spec.dataset_id)
         conditions = tuple(self._condition(item) for item in filter_spec.conditions)
         count_statement = self._assessment_query(select(func.count()))
@@ -110,18 +111,13 @@ class SqlAlchemyAnalysisDatasetProvider:
                 assessment.AssessmentAreaGeometryRevision.min_elevation_m.label("min_elevation_m"),
                 assessment.AssessmentAreaGeometryRevision.max_elevation_m.label("max_elevation_m"),
                 assessment.AssessmentAreaEvaluationRevision.assessment_date.label("assessment_date"),
-                assessment.AssessmentAreaEvaluationRevision.status.label("status"),
                 assessment.AssessmentAreaEvaluationRevision.design_achievement_index.label("dai"),
                 assessment.AssessmentAreaEvaluationRevision.face_condition_index.label("fci"),
                 assessment.AssessmentAreaEvaluationRevision.result_quadrant.label("result_quadrant"),
                 assessment.AssessmentAreaEvaluationRevision.inspector.label("inspector"),
             )
         ).where(*conditions).order_by(
-            Site.name,
-            Domain.name,
-            assessment.AssessmentAreaEvaluationRevision.assessment_date.desc().nullslast(),
-            assessment.AssessmentArea.name,
-            assessment.AssessmentAreaEvaluationRevision.logical_id,
+            *self._order_by(sort_spec)
         ).limit(limit + 1)
 
         with self.session_factory() as session:
@@ -137,8 +133,46 @@ class SqlAlchemyAnalysisDatasetProvider:
             total_count=total_count,
             filtered_count=filtered_count,
             truncated=truncated,
-            query_metadata={"limit": limit, "observation": "active_completed_evaluation"},
+            query_metadata={
+                "limit": limit,
+                "observation": "active_completed_evaluation",
+                "sort_field": sort_spec.field_key if sort_spec else None,
+                "sort_ascending": sort_spec.ascending if sort_spec else None,
+            },
         )
+
+    @staticmethod
+    def _order_by(sort_spec: SortSpec | None) -> tuple:
+        revision = assessment.AssessmentAreaEvaluationRevision
+        geometry = assessment.AssessmentAreaGeometryRevision
+        area = assessment.AssessmentArea
+        if sort_spec is None:
+            return (
+                Site.name,
+                Domain.name,
+                revision.assessment_date.desc().nullslast(),
+                area.name,
+                revision.logical_id,
+            )
+        columns = {
+            "project": Site.name,
+            "domain": Domain.name,
+            "assessment_area": area.name,
+            "min_elevation_m": geometry.min_elevation_m,
+            "max_elevation_m": geometry.max_elevation_m,
+            "assessment_date": revision.assessment_date,
+            "dai": revision.design_achievement_index,
+            "fci": revision.face_condition_index,
+            "result_quadrant": revision.result_quadrant,
+            "inspector": revision.inspector,
+            "evaluation_revision_id": revision.logical_id,
+        }
+        try:
+            column = columns[sort_spec.field_key]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported Analysis sort field: {sort_spec.field_key}") from exc
+        primary = column.asc() if sort_spec.ascending else column.desc()
+        return (primary.nullslast(), revision.logical_id.asc())
 
     @staticmethod
     def _require_assessment_results(dataset_id: str) -> None:
@@ -191,7 +225,6 @@ class SqlAlchemyAnalysisDatasetProvider:
             "project": Site.id,
             "domain": Domain.id,
             "assessment_area": assessment.AssessmentArea.id,
-            "status": revision.status,
             "assessment_date": revision.assessment_date,
             "min_elevation_m": geometry.min_elevation_m,
             "max_elevation_m": geometry.max_elevation_m,
@@ -237,7 +270,6 @@ class SqlAlchemyAnalysisDatasetProvider:
                 "min_elevation_m": _float_or_none(minimum),
                 "max_elevation_m": _float_or_none(maximum),
                 "assessment_date": item["assessment_date"],
-                "status": item["status"],
                 "dai": _float_or_none(item["dai"]),
                 "fci": _float_or_none(item["fci"]),
                 "result_quadrant": item["result_quadrant"],

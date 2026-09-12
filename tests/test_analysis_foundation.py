@@ -17,6 +17,7 @@ from application.analysis.models import (
     FilterSpec,
     FilteredDataset,
     SourceReference,
+    SortSpec,
 )
 from application.services.analysis import AnalysisDatasetService
 
@@ -24,6 +25,7 @@ from application.services.analysis import AnalysisDatasetService
 class MemoryAnalysisProvider:
     def __init__(self):
         self.specs = []
+        self.sort_specs = []
         self.rows = (
             AnalysisRow(
                 "EVR-1",
@@ -31,7 +33,7 @@ class MemoryAnalysisProvider:
                     "project": "Alpha", "domain": "North", "assessment_area": "Wall 1",
                     "elevation_interval": "600–620", "min_elevation_m": 600.0,
                     "max_elevation_m": 620.0, "assessment_date": date(2026, 8, 1),
-                    "status": "completed", "dai": .8, "fci": .7,
+                    "dai": .8, "fci": .7,
                     "result_quadrant": "good_results", "inspector": "A. Smith",
                     "evaluation_revision_id": "EVR-1", "_project_id": 1,
                     "_domain_id": 10, "_area_id": 100,
@@ -44,7 +46,7 @@ class MemoryAnalysisProvider:
                     "project": "Alpha", "domain": "South", "assessment_area": "Wall 2",
                     "elevation_interval": None, "min_elevation_m": None,
                     "max_elevation_m": None, "assessment_date": date(2026, 8, 3),
-                    "status": "completed", "dai": None, "fci": .55,
+                    "dai": None, "fci": .55,
                     "result_quadrant": "geometry_achieved_condition_insufficient",
                     "inspector": None, "evaluation_revision_id": "EVR-2",
                     "_project_id": 1, "_domain_id": 11, "_area_id": 101,
@@ -57,7 +59,7 @@ class MemoryAnalysisProvider:
                     "project": "Beta", "domain": "East", "assessment_area": "Wall 3",
                     "elevation_interval": "580–600", "min_elevation_m": 580.0,
                     "max_elevation_m": 600.0, "assessment_date": date(2026, 8, 5),
-                    "status": "completed", "dai": .4, "fci": .3,
+                    "dai": .4, "fci": .3,
                     "result_quadrant": "unacceptable", "inspector": "B. Jones",
                     "evaluation_revision_id": "EVR-3", "_project_id": 2,
                     "_domain_id": 12, "_area_id": 102,
@@ -72,7 +74,6 @@ class MemoryAnalysisProvider:
             "project": (FilterChoice(1, "Alpha"), FilterChoice(2, "Beta")),
             "domain": (FilterChoice(10, "Alpha / North"), FilterChoice(11, "Alpha / South"), FilterChoice(12, "Beta / East")),
             "assessment_area": (FilterChoice(100, "Alpha / North / Wall 1"), FilterChoice(101, "Alpha / South / Wall 2"), FilterChoice(102, "Beta / East / Wall 3")),
-            "status": (FilterChoice("completed", "completed"),),
             "result_quadrant": (
                 FilterChoice("good_results", "good_results"),
                 FilterChoice("unacceptable", "unacceptable"),
@@ -80,8 +81,9 @@ class MemoryAnalysisProvider:
             "inspector": (FilterChoice("A. Smith", "A. Smith"), FilterChoice("B. Jones", "B. Jones")),
         }
 
-    def load(self, spec, *, limit):
+    def load(self, spec, *, sort_spec=None, limit):
         self.specs.append(spec)
+        self.sort_specs.append(sort_spec)
         rows = list(self.rows)
         identifiers = {"project": "_project_id", "domain": "_domain_id", "assessment_area": "_area_id"}
         for condition in spec.conditions:
@@ -98,6 +100,24 @@ class MemoryAnalysisProvider:
                 rows = [row for row in rows if row.values.get(condition.field_key) is not None
                         and (lower is None or row.values[condition.field_key] >= lower)
                         and (upper is None or row.values[condition.field_key] <= upper)]
+        if sort_spec is not None:
+            populated = [
+                row for row in rows if row.values.get(sort_spec.field_key) is not None
+            ]
+            missing = [
+                row for row in rows if row.values.get(sort_spec.field_key) is None
+            ]
+
+            def sort_value(row):
+                value = row.values[sort_spec.field_key]
+                return value.casefold() if isinstance(value, str) else value
+
+            populated.sort(
+                key=lambda row: (sort_value(row), row.identity),
+                reverse=not sort_spec.ascending,
+            )
+            missing.sort(key=lambda row: row.identity)
+            rows = populated + missing
         return FilteredDataset(
             assessment_results_dataset(), tuple(rows[:limit]), len(self.rows), len(rows),
             len(rows) > limit,
@@ -114,7 +134,11 @@ def test_dataset_metadata_has_stable_keys_types_and_explicit_row_semantics():
     assert dataset.field("fci").field_type is AnalysisFieldType.NUMERIC
     assert dataset.field("dai").key != dataset.field("fci").key
     assert dataset.field("project").always_visible
+    assert dataset.field("project").common_filter
+    assert dataset.field("domain").common_filter
     assert dataset.field("assessment_date").supported_operators == (FilterOperator.DATE_RANGE,)
+    with pytest.raises(KeyError):
+        dataset.field("status")
 
 
 def test_service_validates_typed_filters_and_unavailable_datasets():
@@ -139,13 +163,36 @@ def test_service_validates_typed_filters_and_unavailable_datasets():
         service.load(FilterSpec("drillhole_qa"))
 
 
+def test_service_validates_sort_metadata_and_provider_sorts_before_limit():
+    provider = MemoryAnalysisProvider()
+    service = AnalysisDatasetService(provider)
+    result = service.load(
+        FilterSpec("assessment_results"),
+        sort_spec=SortSpec("dai", ascending=True),
+        limit=2,
+    )
+    assert [row.identity for row in result.rows] == ["EVR-3", "EVR-1"]
+    assert result.truncated
+    assert provider.sort_specs[-1] == SortSpec("dai", ascending=True)
+    with pytest.raises(ValueError, match="not sortable"):
+        service.load(
+            FilterSpec("assessment_results"),
+            sort_spec=SortSpec("elevation_interval"),
+        )
+    with pytest.raises(ValueError, match="Unknown Analysis sort field"):
+        service.load(
+            FilterSpec("assessment_results"), sort_spec=SortSpec("invented")
+        )
+
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 from PySide6.QtCore import QDate, Qt
 
 from ui.header import Header
 from ui.main_window import MainWindow
-from ui.pages.analysis_page import AnalysisPage, AnalysisTableModel, MISSING_VALUE
+from ui.analysis.data_table import MISSING_VALUE
+from ui.pages.analysis_page import AnalysisPage
 
 
 def _app():
@@ -154,24 +201,28 @@ def _app():
 
 def test_analysis_data_table_sort_format_identity_and_column_visibility():
     app = _app()
-    page = AnalysisPage(AnalysisDatasetService(MemoryAnalysisProvider()))
+    provider = MemoryAnalysisProvider()
+    page = AnalysisPage(AnalysisDatasetService(provider))
     page.resize(1400, 840)
     page.show(); app.processEvents()
     assert page.record_count_label.text() == "3 / 3 records"
-    assert page.model.rowCount() == 3
-    assert page.model.data(page.model.index(0, 0), Qt.ItemDataRole.UserRole) == "EVR-1"
+    model = page.data_view.model
+    table = page.data_view.table
+    assert model.rowCount() == 3
+    assert model.data(model.index(0, 0), Qt.ItemDataRole.UserRole) == "EVR-1"
 
-    dai_column = next(i for i, field in enumerate(page.model.dataset.fields) if field.key == "dai")
-    inspector_column = next(i for i, field in enumerate(page.model.dataset.fields) if field.key == "inspector")
-    assert page.model.data(page.model.index(0, dai_column)) == "0.800"
-    assert page.model.data(page.model.index(1, dai_column)) == MISSING_VALUE
-    assert page.table.isColumnHidden(inspector_column)
+    dai_column = next(i for i, field in enumerate(model.dataset.fields) if field.key == "dai")
+    inspector_column = next(i for i, field in enumerate(model.dataset.fields) if field.key == "inspector")
+    assert model.data(model.index(0, dai_column)) == "0.800"
+    assert model.data(model.index(1, dai_column)) == MISSING_VALUE
+    assert table.isColumnHidden(inspector_column)
 
-    inspector_action = next(action for action in page.columns_menu.actions() if action.text() == "Inspector")
+    inspector_action = next(action for action in page.data_view.columns_menu.actions() if action.text() == "Inspector")
     inspector_action.setChecked(True); app.processEvents()
-    assert not page.table.isColumnHidden(inspector_column)
-    page.table.sortByColumn(dai_column, Qt.SortOrder.DescendingOrder); app.processEvents()
-    assert [row.identity for row in page.model.rows] == ["EVR-1", "EVR-3", "EVR-2"]
+    assert not table.isColumnHidden(inspector_column)
+    table.sortByColumn(dai_column, Qt.SortOrder.DescendingOrder); app.processEvents()
+    assert [row.identity for row in model.rows] == ["EVR-1", "EVR-3", "EVR-2"]
+    assert provider.sort_specs[-1] == SortSpec("dai", ascending=False)
 
     page.tabs.setCurrentIndex(2); page.tabs.setCurrentIndex(0)
     assert inspector_action.isChecked()
@@ -183,53 +234,104 @@ def test_analysis_workspace_has_light_and_dark_theme_contracts():
 
     light = Path("ui/theme.py").read_text(encoding="utf-8")
     dark = Path("ui/application_theme.py").read_text(encoding="utf-8")
-    for selector in ("AnalysisPage", "AnalysisToolbar", "AnalysisFiltersPanel", "AnalysisDataTable"):
+    for selector in (
+        "AnalysisPage",
+        "AnalysisToolbar",
+        "AnalysisFiltersPanel",
+        "AnalysisRemoveFilterButton",
+        "AnalysisDataTable",
+    ):
         assert selector in light
         assert selector in dark
 
 
-def test_filters_update_counts_zero_state_date_range_and_reset():
+def test_compact_filters_add_remove_prevent_duplicates_and_reset():
     app = _app()
     provider = MemoryAnalysisProvider()
     page = AnalysisPage(AnalysisDatasetService(provider))
     page.show(); app.processEvents()
 
-    project = page._filter_controls["project"]
+    project = page.filter_panel.controls["project"]
+    assert set(page.filter_panel.controls) == {"project", "domain"}
+    expected_optional = {
+        field.key
+        for field in assessment_results_dataset().fields
+        if field.filterable and not field.common_filter
+    }
+    assert {
+        action.data() for action in page.filter_panel.add_menu.actions()
+    } == expected_optional
     project.combo.setCurrentIndex(project.combo.findData(1)); app.processEvents()
     assert page.record_count_label.text() == "2 / 3 records"
     assert page.current_filter_spec().active_count == 1
 
-    dai = page._filter_controls["dai"]
+    assert page.filter_panel.add_optional_filter("dai")
+    assert not page.filter_panel.add_optional_filter("dai")
+    dai = page.filter_panel.controls["dai"]
     dai.minimum.setText("0.7"); dai.minimum.editingFinished.emit(); app.processEvents()
     assert page.record_count_label.text() == "1 / 3 records"
 
     page.reset_filters(); app.processEvents()
-    when = page._filter_controls["assessment_date"]
+    assert set(page.filter_panel.controls) == {"project", "domain"}
+    assert page.current_filter_spec().active_count == 0
+    assert page.filter_panel.add_optional_filter("assessment_date")
+    when = page.filter_panel.controls["assessment_date"]
     when.minimum.setDate(QDate(2026, 8, 4))
     when.from_enabled.setChecked(True); app.processEvents()
     assert page.record_count_label.text() == "1 / 3 records"
 
     page.reset_filters(); app.processEvents()
+    assert page.filter_panel.add_optional_filter("dai")
+    dai = page.filter_panel.controls["dai"]
     dai.minimum.setText("0.99"); dai.minimum.editingFinished.emit(); app.processEvents()
     assert page.record_count_label.text() == "0 / 3 records"
-    assert "match the current filters" in page.state_label.text()
+    assert "match the current filters" in page.data_view.state_label.text()
     page.reset_filters(); app.processEvents()
     assert page.record_count_label.text() == "3 / 3 records"
     assert page.active_count_label.text() == "No active filters"
     page.close()
 
 
+def test_optional_filter_can_be_removed_individually():
+    app = _app()
+    page = AnalysisPage(AnalysisDatasetService(MemoryAnalysisProvider()))
+    page.show(); app.processEvents()
+    assert page.filter_panel.add_optional_filter("inspector")
+    inspector = page.filter_panel.controls["inspector"]
+    inspector.combo.setCurrentIndex(inspector.combo.findData("A. Smith"))
+    app.processEvents()
+    assert page.current_filter_spec().active_count == 1
+    assert page.filter_panel.remove_optional_filter("inspector")
+    app.processEvents()
+    assert "inspector" not in page.filter_panel.controls
+    assert page.current_filter_spec().active_count == 0
+    page.close()
+
+
 def test_unavailable_dataset_is_honest_and_analysis_state_survives_return():
     app = _app()
     page = AnalysisPage(AnalysisDatasetService(MemoryAnalysisProvider()))
-    inspector_action = next(action for action in page.columns_menu.actions() if action.text() == "Inspector")
+    inspector_action = next(action for action in page.data_view.columns_menu.actions() if action.text() == "Inspector")
     inspector_action.setChecked(True)
+    assert page.filter_panel.add_optional_filter("inspector")
+    inspector = page.filter_panel.controls["inspector"]
+    inspector.combo.setCurrentIndex(inspector.combo.findData("B. Jones"))
+    dai_column = next(i for i, field in enumerate(page.data_view.model.dataset.fields) if field.key == "dai")
+    page.data_view.table.sortByColumn(dai_column, Qt.SortOrder.AscendingOrder)
+    app.processEvents()
+    page.tabs.setCurrentIndex(2); page.tabs.setCurrentIndex(0)
+    assert page.current_filter_spec().active_count == 1
+    page.reload(); app.processEvents()
+    assert "inspector" in page.filter_panel.optional_keys
+    assert page.filter_panel.controls["inspector"].combo.currentData() == "B. Jones"
     page.dataset_combo.setCurrentIndex(1); app.processEvents()
     assert page.selected_dataset_id == "production_technical_cards"
-    assert page.state_label.text() == "This Analysis dataset is not available yet."
+    assert page.data_view.state_label.text() == "This Analysis dataset is not available yet."
     page.dataset_combo.setCurrentIndex(0); app.processEvents()
-    inspector_column = next(i for i, field in enumerate(page.model.dataset.fields) if field.key == "inspector")
-    assert not page.table.isColumnHidden(inspector_column)
+    inspector_column = next(i for i, field in enumerate(page.data_view.model.dataset.fields) if field.key == "inspector")
+    assert not page.data_view.table.isColumnHidden(inspector_column)
+    assert page.filter_panel.controls["inspector"].combo.currentData() == "B. Jones"
+    assert page._sort_state["assessment_results"] == SortSpec("dai", ascending=True)
     page.close()
 
 

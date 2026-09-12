@@ -13,6 +13,7 @@ from .models import (
     FilterSpec,
     FilteredDataset,
     SourceReference,
+    SortSpec,
 )
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "FilterSpec",
     "FilteredDataset",
     "SourceReference",
+    "SortSpec",
     "assessment_results_dataset",
     "dataset_by_id",
 ]

@@ -17,7 +17,12 @@ if not URL:
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from application.analysis.models import FilterCondition, FilterOperator, FilterSpec
+from application.analysis.models import (
+    FilterCondition,
+    FilterOperator,
+    FilterSpec,
+    SortSpec,
+)
 from database import assessment_models as orm
 from database.models import Domain, Site
 from infrastructure.db.analysis_dataset_provider import SqlAlchemyAnalysisDatasetProvider
@@ -153,5 +158,59 @@ def test_assessment_provider_uses_one_current_stored_completed_result_and_filter
     assert dated.filtered_count == 1 and dated.rows[0].identity == "ER-3"
 
     options = provider.filter_options("assessment_results")
+    assert "status" not in options
     assert {item.label for item in options["project"]} == {"Alpha", "Beta"}
     assert any(item.value == north_id for item in options["domain"])
+
+
+def test_assessment_provider_sorts_full_filtered_population_before_limit(factory):
+    with factory.begin() as session:
+        project = Site(name="Analysis Sort Project")
+        domain = Domain(site=project, name="Sort Domain")
+        session.add_all((project, domain))
+        session.flush()
+        for suffix, dai in (
+            ("SORT-HIGH", "0.90"),
+            ("SORT-NULL", None),
+            ("SORT-LOW", "0.10"),
+            ("SORT-MID", "0.50"),
+        ):
+            _area(
+                session,
+                domain,
+                suffix=suffix,
+                status="completed",
+                assessment_date=date(2026, 8, 10),
+                dai=dai,
+                fci="0.50",
+            )
+        project_id = project.id
+
+    provider = SqlAlchemyAnalysisDatasetProvider(factory)
+    filters = FilterSpec(
+        "assessment_results",
+        (
+            FilterCondition(
+                "project", FilterOperator.CATEGORICAL_EQUALS, project_id
+            ),
+        ),
+    )
+    ascending = provider.load(
+        filters, sort_spec=SortSpec("dai", ascending=True), limit=2
+    )
+    assert ascending.filtered_count == 4
+    assert ascending.truncated
+    assert [row.identity for row in ascending.rows] == [
+        "ER-SORT-LOW",
+        "ER-SORT-MID",
+    ]
+
+    descending = provider.load(
+        filters, sort_spec=SortSpec("dai", ascending=False), limit=4
+    )
+    assert [row.identity for row in descending.rows] == [
+        "ER-SORT-HIGH",
+        "ER-SORT-MID",
+        "ER-SORT-LOW",
+        "ER-SORT-NULL",
+    ]

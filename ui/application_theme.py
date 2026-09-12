@@ -262,6 +262,12 @@ QLabel#AnalysisSectionTitle {{ color: {DarkColor.TEXT_SECONDARY}; }}
 QLabel#AnalysisRecordCount {{ color: {DarkColor.ACCENT_HOVER}; }}
 QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics {{ color: {DarkColor.TEXT_MUTED}; }}
 QScrollArea#AnalysisFilterScroll, QScrollArea#AnalysisFilterScroll > QWidget > QWidget {{ background: transparent; border: 0; }}
+QToolButton#AnalysisRemoveFilterButton {{
+    color: {DarkColor.TEXT_MUTED}; background: transparent; border: 0;
+}}
+QToolButton#AnalysisRemoveFilterButton:hover {{
+    color: {DarkColor.TEXT_PRIMARY}; background: {DarkColor.SURFACE_ELEVATED};
+}}
 QWidget#AnalysisPage QComboBox, QWidget#AnalysisPage QLineEdit, QWidget#AnalysisPage QDateEdit {{
     background: {DarkColor.SURFACE}; color: {DarkColor.TEXT_PRIMARY}; border-color: {DarkColor.BORDER};
 }}

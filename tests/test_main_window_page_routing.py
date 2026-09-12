@@ -223,6 +223,8 @@ def test_analysis_button_toggles_persistent_full_width_workspace_before_report()
     header=source("ui/header.py")
     main=source("ui/main_window.py")
     page=source("ui/pages/analysis_page.py")
+    filters=source("ui/analysis/filters.py")
+    data_table=source("ui/analysis/data_table.py")
     assert "analysis_requested" in header and "Signal()" in header
     assert 'QPushButton(tr("Analysis"))' in header
     assert 'self.analysis_button.setIcon(ui_icon("analytics"))' in header
@@ -233,6 +235,8 @@ def test_analysis_button_toggles_persistent_full_width_workspace_before_report()
     assert "self.workspace_stack.addWidget(self.analysis_page)" in main
     assert "self._set_analysis_mode(False)" in main
     assert "self._set_analysis_mode(True)" in main
-    assert "AnalysisTableModel" in page
+    assert "AnalysisDataTable" in page
     assert "FilterSpec" in page
-    assert 'setObjectName("AnalysisDataTable")' in page
+    assert "AnalysisFilterPanel" in page
+    assert 'setObjectName("AnalysisDataTable")' in data_table
+    assert 'tr("+ Add filter")' in filters

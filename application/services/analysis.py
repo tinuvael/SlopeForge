@@ -15,6 +15,7 @@ from application.analysis.models import (
     FilterOperator,
     FilterSpec,
     FilteredDataset,
+    SortSpec,
 )
 from application.ports.analysis import AnalysisDatasetProvider
 
@@ -40,16 +41,35 @@ class AnalysisDatasetService:
             raise DatasetUnavailableError(dataset.unavailable_reason or dataset.label)
         return dict(self.provider.filter_options(dataset_id))
 
-    def load(self, filter_spec: FilterSpec, *, limit: int | None = None) -> FilteredDataset:
+    def load(
+        self,
+        filter_spec: FilterSpec,
+        *,
+        sort_spec: SortSpec | None = None,
+        limit: int | None = None,
+    ) -> FilteredDataset:
         dataset = self.dataset(filter_spec.dataset_id)
         if not dataset.available:
             raise DatasetUnavailableError(dataset.unavailable_reason or dataset.label)
         for condition in filter_spec.conditions:
             self._validate_condition(dataset, condition)
+        if sort_spec is not None:
+            self._validate_sort(dataset, sort_spec)
         row_limit = self.DEFAULT_ROW_LIMIT if limit is None else int(limit)
         if row_limit <= 0:
             raise ValueError("Analysis row limit must be positive")
-        return self.provider.load(filter_spec, limit=row_limit)
+        return self.provider.load(filter_spec, sort_spec=sort_spec, limit=row_limit)
+
+    @staticmethod
+    def _validate_sort(dataset: AnalysisDataset, sort_spec: SortSpec) -> None:
+        if not isinstance(sort_spec.ascending, bool):
+            raise ValueError("Analysis sort direction must be boolean")
+        try:
+            field = dataset.field(sort_spec.field_key)
+        except KeyError as exc:
+            raise ValueError(f"Unknown Analysis sort field: {sort_spec.field_key}") from exc
+        if not field.sortable:
+            raise ValueError(f"Analysis field is not sortable: {sort_spec.field_key}")
 
     @staticmethod
     def _validate_condition(dataset: AnalysisDataset, condition: FilterCondition) -> None:

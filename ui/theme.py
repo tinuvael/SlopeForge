@@ -184,6 +184,11 @@ QLabel#AnalysisRecordCount { color: #1261a0; font-weight: 700; padding-left: 10p
 QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics { color: #6b7280; }
 QScrollArea#AnalysisFilterScroll { background: transparent; border: 0; }
 QScrollArea#AnalysisFilterScroll > QWidget > QWidget { background: transparent; }
+QToolButton#AnalysisRemoveFilterButton {
+    min-width: 22px; min-height: 22px; border: 0; border-radius: 4px;
+    color: #6b7280; background: transparent; font-weight: 700;
+}
+QToolButton#AnalysisRemoveFilterButton:hover { color: #111827; background: #edf2f7; }
 QWidget#AnalysisPage QComboBox, QWidget#AnalysisPage QLineEdit, QWidget#AnalysisPage QDateEdit {
     min-height: 26px; background: #ffffff; color: #111827;
     border: 1px solid #cfd6df; border-radius: 5px; padding: 1px 7px;

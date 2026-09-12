@@ -8,6 +8,8 @@
     <message><source>Dataset:</source><translation>Набор данных:</translation></message>
     <message><source>Not available yet</source><translation>Пока недоступно</translation></message>
     <message><source>FILTERS</source><translation>ФИЛЬТРЫ</translation></message>
+    <message><source>+ Add filter</source><translation>+ Добавить фильтр</translation></message>
+    <message><source>Remove %1 filter</source><translation>Удалить фильтр «%1»</translation></message>
     <message><source>Reset filters</source><translation>Сбросить фильтры</translation></message>
     <message><source>Columns</source><translation>Столбцы</translation></message>
     <message><source>Data</source><translation>Данные</translation></message>

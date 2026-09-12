@@ -37,6 +37,7 @@ class AnalysisField:
     decimals: int | None = None
     format_hint: str | None = None
     source_role: str | None = None
+    common_filter: bool = False
 
     @property
     def is_numeric(self) -> bool:
@@ -97,6 +98,12 @@ class FilterSpec:
     @property
     def active_count(self) -> int:
         return len(self.conditions)
+
+
+@dataclass(frozen=True)
+class SortSpec:
+    field_key: str
+    ascending: bool = True
 
 
 @dataclass(frozen=True)

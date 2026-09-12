@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -49,13 +50,22 @@ class FilterControl(QWidget):
     def __init__(self, field: AnalysisField, *, removable: bool, parent=None):
         super().__init__(parent)
         self.field = field
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(3)
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         label = tr(field.label)
-        header.addWidget(QLabel(f"{label}, {field.unit}" if field.unit else label), 1)
+        field_label = QLabel(f"{label}, {field.unit}" if field.unit else label)
+        field_label.setMinimumWidth(0)
+        field_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        header.addWidget(field_label, 1)
         if removable:
             remove_button = QToolButton()
             remove_button.setObjectName("AnalysisRemoveFilterButton")
@@ -65,6 +75,10 @@ class FilterControl(QWidget):
                 tr("Remove %1 filter").replace("%1", tr(field.label))
             )
             remove_button.setAccessibleName(remove_button.toolTip())
+            remove_button.setFixedWidth(22)
+            remove_button.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
             remove_button.clicked.connect(
                 lambda: self.remove_requested.emit(self.field.key)
             )
@@ -92,10 +106,25 @@ class CategoricalFilter(FilterControl):
     ):
         super().__init__(field, removable=removable, parent=parent)
         self.combo = QComboBox()
+        self.combo.setMinimumWidth(0)
+        self.combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.combo.setMinimumContentsLength(8)
         self.combo.addItem(tr("All"), None)
+        self.combo.setItemData(0, tr("All"), Qt.ItemDataRole.ToolTipRole)
         for choice in choices:
-            self.combo.addItem(_choice_label(field, choice.label), choice.value)
+            choice_label = _choice_label(field, choice.label)
+            self.combo.addItem(choice_label, choice.value)
+            self.combo.setItemData(
+                self.combo.count() - 1, choice_label, Qt.ItemDataRole.ToolTipRole
+            )
         self.combo.currentIndexChanged.connect(self.changed)
+        self.combo.currentTextChanged.connect(self.combo.setToolTip)
+        self.combo.setToolTip(self.combo.currentText())
         self._layout.addWidget(self.combo)
 
     def condition(self) -> FilterCondition | None:
@@ -119,6 +148,11 @@ class NumericRangeFilter(FilterControl):
         row.setSpacing(5)
         self.minimum = QLineEdit()
         self.maximum = QLineEdit()
+        for editor in (self.minimum, self.maximum):
+            editor.setMinimumWidth(0)
+            editor.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
         validator = QDoubleValidator(self)
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         self.minimum.setValidator(validator)
@@ -127,8 +161,8 @@ class NumericRangeFilter(FilterControl):
         self.maximum.setPlaceholderText(tr("Max"))
         self.minimum.editingFinished.connect(self.changed)
         self.maximum.editingFinished.connect(self.changed)
-        row.addWidget(self.minimum)
-        row.addWidget(self.maximum)
+        row.addWidget(self.minimum, 1)
+        row.addWidget(self.maximum, 1)
         self._layout.addLayout(row)
 
     def condition(self) -> FilterCondition | None:
@@ -180,6 +214,10 @@ class DateRangeFilter(FilterControl):
             QLocale.system().dateFormat(QLocale.FormatType.ShortFormat)
         )
         editor.setEnabled(False)
+        editor.setMinimumWidth(0)
+        editor.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         return editor
 
     def _date_changed(self) -> None:
@@ -242,23 +280,37 @@ class AnalysisFilterPanel(QFrame):
         heading = QLabel(tr("FILTERS"))
         heading.setObjectName("AnalysisSectionTitle")
         layout.addWidget(heading)
-        scroll = QScrollArea()
-        scroll.setObjectName("AnalysisFilterScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        host = QWidget()
-        self.filter_layout = QVBoxLayout(host)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("AnalysisFilterScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.filter_host = QWidget()
+        self.filter_host.setMinimumWidth(0)
+        self.filter_host.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        self.filter_layout = QVBoxLayout(self.filter_host)
         self.filter_layout.setContentsMargins(0, 0, 4, 0)
         self.filter_layout.setSpacing(9)
-        scroll.setWidget(host)
-        layout.addWidget(scroll, 1)
+        self.scroll.setWidget(self.filter_host)
+        layout.addWidget(self.scroll, 1)
         self.add_button = QPushButton(tr("+ Add filter"))
         self.add_menu = QMenu(self.add_button)
         self.add_button.setMenu(self.add_menu)
         set_button_role(self.add_button, "secondary")
+        self.add_button.setMinimumWidth(0)
+        self.add_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         layout.addWidget(self.add_button)
         self.reset_button = QPushButton(tr("Reset filters"))
         set_button_role(self.reset_button, "secondary")
+        self.reset_button.setMinimumWidth(0)
+        self.reset_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.reset_button.clicked.connect(self.reset)
         layout.addWidget(self.reset_button)
 

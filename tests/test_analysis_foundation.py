@@ -187,11 +187,12 @@ def test_service_validates_sort_metadata_and_provider_sorts_before_limit():
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
-from PySide6.QtCore import QDate, QEvent, Qt
+from PySide6.QtCore import QDate, QEvent, QPoint, Qt
 
 from ui.header import Header
 from ui.main_window import MainWindow
 from ui.analysis.data_table import MISSING_VALUE
+from ui.analysis.filters import AnalysisFilterPanel
 from ui.pages.analysis_page import AnalysisPage
 
 
@@ -345,6 +346,69 @@ def test_compact_filters_add_remove_prevent_duplicates_and_reset():
     assert page.record_count_label.text() == "3 / 3 records"
     assert page.active_count_label.text() == "No active filters"
     page.close()
+
+
+def test_filter_panel_children_stay_within_narrow_scroll_viewport():
+    app = _app()
+    dataset = assessment_results_dataset()
+    very_long = (
+        "Birkachan / South / Assessment Area with a deliberately very long name "
+        "that must not widen the filter sidebar"
+    )
+    options = MemoryAnalysisProvider().filter_options("assessment_results")
+    options["project"] = (FilterChoice(1, very_long),)
+    options["domain"] = (FilterChoice(10, very_long),)
+    options["assessment_area"] = (FilterChoice(100, very_long),)
+    options["inspector"] = (FilterChoice("Long Inspector", very_long),)
+
+    panel = AnalysisFilterPanel()
+    panel.resize(230, 700)
+    panel.set_dataset(dataset, options, FilterSpec("assessment_results"), ())
+    for key in ("assessment_area", "fci", "assessment_date", "inspector"):
+        assert panel.add_optional_filter(key)
+    panel.show()
+    app.processEvents()
+
+    viewport = panel.scroll.viewport()
+    assert panel.filter_host.width() == viewport.width()
+    assert not panel.scroll.horizontalScrollBar().isVisible()
+    assert panel.scroll.horizontalScrollBar().maximum() == 0
+
+    def assert_inside_viewport(widget):
+        top_left = widget.mapTo(viewport, QPoint(0, 0))
+        assert top_left.x() >= 0
+        assert top_left.x() + widget.width() <= viewport.width()
+
+    for control in panel.controls.values():
+        assert_inside_viewport(control)
+        for widget_type in (
+            QtWidgets.QComboBox,
+            QtWidgets.QLineEdit,
+            QtWidgets.QDateEdit,
+            QtWidgets.QToolButton,
+        ):
+            for widget in control.findChildren(widget_type):
+                if widget.isVisible():
+                    assert_inside_viewport(widget)
+
+    area_combo = panel.controls["assessment_area"].combo
+    area_combo.setCurrentIndex(1)
+    app.processEvents()
+    assert area_combo.minimumWidth() == 0
+    assert area_combo.width() <= viewport.width()
+    assert area_combo.toolTip() == very_long
+
+    date_filter = panel.controls["assessment_date"]
+    assert not date_filter.minimum.isEnabled()
+    date_filter.from_enabled.setChecked(True)
+    app.processEvents()
+    assert date_filter.minimum.isEnabled()
+    assert_inside_viewport(date_filter.minimum)
+
+    for button in (panel.add_button, panel.reset_button):
+        right_edge = button.mapTo(panel, QPoint(0, 0)).x() + button.width()
+        assert right_edge <= panel.width()
+    panel.close()
 
 
 def test_optional_filter_can_be_removed_individually():

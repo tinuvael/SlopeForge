@@ -90,6 +90,8 @@ class AnalysisTableModel(QAbstractTableModel):
             return row.identity
         if role == Qt.ItemDataRole.UserRole + 1:
             return row.source
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return format_analysis_value(field, value)
         if role == Qt.ItemDataRole.TextAlignmentRole:
             if field.field_type is AnalysisFieldType.NUMERIC:
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -142,6 +144,17 @@ class AnalysisDataTable(QWidget):
         self.row_semantics.setObjectName("AnalysisRowSemantics")
         self.row_semantics.setWordWrap(True)
         controls.addWidget(self.row_semantics, 1)
+        self.display_count_label = QLabel()
+        self.display_count_label.setObjectName("AnalysisDisplayedCount")
+        controls.addWidget(self.display_count_label)
+        self.open_source_button = QPushButton(tr("Open source"))
+        self.open_source_button.setEnabled(False)
+        self.open_source_button.setToolTip(
+            tr("Open the source record for the selected observation")
+        )
+        set_button_role(self.open_source_button, "secondary")
+        self.open_source_button.clicked.connect(self._open_selected)
+        controls.addWidget(self.open_source_button)
         self.columns_button = QPushButton(tr("Columns"))
         self.columns_menu = QMenu(self.columns_button)
         self.columns_button.setMenu(self.columns_menu)
@@ -158,6 +171,7 @@ class AnalysisDataTable(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.table.verticalHeader().hide()
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -167,6 +181,7 @@ class AnalysisDataTable(QWidget):
         self.model = AnalysisTableModel(self.table)
         self.model.sort_requested.connect(self._model_sort_requested)
         self.table.setModel(self.model)
+        self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self._restoring_sort = True
         self.table.setSortingEnabled(True)
         self._restoring_sort = False
@@ -196,6 +211,9 @@ class AnalysisDataTable(QWidget):
         if dataset_changed:
             self._build_columns_menu(dataset, visible_columns)
         self._apply_column_visibility(dataset, visible_columns)
+        if dataset_changed:
+            self._apply_initial_widths(dataset)
+        self.open_source_button.setEnabled(False)
         header = self.table.horizontalHeader()
         self._restoring_sort = True
         try:
@@ -215,6 +233,24 @@ class AnalysisDataTable(QWidget):
 
     def set_row_semantics(self, text: str) -> None:
         self.row_semantics.setText(text)
+
+    def set_population_counts(
+        self, displayed_rows: int, matching_records: int, truncated: bool
+    ) -> None:
+        if truncated:
+            self.display_count_label.setText(
+                tr("Showing first %1 of %2 matching records")
+                .replace("%1", f"{displayed_rows:,}")
+                .replace("%2", f"{matching_records:,}")
+            )
+            self.display_count_label.setProperty("truncated", True)
+        else:
+            self.display_count_label.setText(
+                tr("%1 rows displayed").replace("%1", f"{displayed_rows:,}")
+            )
+            self.display_count_label.setProperty("truncated", False)
+        self.display_count_label.style().unpolish(self.display_count_label)
+        self.display_count_label.style().polish(self.display_count_label)
 
     def show_rows(self) -> None:
         self.stack.setCurrentWidget(self.table)
@@ -262,6 +298,25 @@ class AnalysisDataTable(QWidget):
                 not field.always_visible and field.key not in visible_columns,
             )
 
+    def _apply_initial_widths(self, definition: AnalysisDataset) -> None:
+        widths = {
+            "project": 155,
+            "domain": 155,
+            "assessment_area": 220,
+            "elevation_interval": 140,
+            "min_elevation_m": 125,
+            "max_elevation_m": 125,
+            "assessment_date": 120,
+            "dai": 88,
+            "fci": 88,
+            "result_quadrant": 300,
+            "inspector": 160,
+            "evaluation_revision_id": 180,
+        }
+        header = self.table.horizontalHeader()
+        for column, field in enumerate(definition.fields):
+            header.resizeSection(column, widths.get(field.key, 135))
+
     def _model_sort_requested(self, sort_spec: SortSpec) -> None:
         if not self._restoring_sort:
             self.sort_requested.emit(sort_spec)
@@ -269,4 +324,19 @@ class AnalysisDataTable(QWidget):
     def _source_double_clicked(self, index: QModelIndex) -> None:
         source = self.model.data(index, Qt.ItemDataRole.UserRole + 1)
         if isinstance(source, SourceReference):
+            self.source_requested.emit(source)
+
+    def _selection_changed(self, *_args) -> None:
+        self.open_source_button.setEnabled(self._selected_source() is not None)
+
+    def _selected_source(self) -> SourceReference | None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        source = self.model.data(rows[0], Qt.ItemDataRole.UserRole + 1)
+        return source if isinstance(source, SourceReference) else None
+
+    def _open_selected(self) -> None:
+        source = self._selected_source()
+        if source is not None:
             self.source_requested.emit(source)

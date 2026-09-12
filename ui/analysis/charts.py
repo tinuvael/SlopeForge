@@ -14,7 +14,7 @@ from PySide6.QtCharts import (
     QScatterSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QMargins, QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
@@ -78,10 +78,12 @@ class AnalysisChartPanel(QWidget):
         ]
         bar_set = QBarSet(tr("Frequency %") if frequency else tr("Count"))
         bar_set.append([float(value) for value in values])
-        bar_set.setColor(self._colors()["accent"])
+        colors = self._colors()
+        bar_set.setColor(colors["bar"])
+        bar_set.setBorderColor(colors["accent"])
         bar_series = QBarSeries()
         bar_series.append(bar_set)
-        bar_series.setBarWidth(0.92)
+        bar_series.setBarWidth(0.76)
         chart.addSeries(bar_series)
         x_axis = QBarCategoryAxis()
         x_axis.append(categories)
@@ -101,17 +103,21 @@ class AnalysisChartPanel(QWidget):
         )
         bar_set.clicked.connect(lambda index: self._inspect_histogram(True, index, result))
         if show_mean:
-            self._add_reference_line(chart, x_axis, y_axis, result, result.mean, tr("Mean"))
+            self._add_reference_line(
+                chart, x_axis, y_axis, result, result.mean, tr("Mean"),
+                color_key="mean_reference", pen_style=Qt.PenStyle.SolidLine,
+            )
         if show_median:
             self._add_reference_line(
-                chart, x_axis, y_axis, result, result.median, tr("Median")
+                chart, x_axis, y_axis, result, result.median, tr("Median"),
+                color_key="median_reference", pen_style=Qt.PenStyle.DashLine,
             )
         self._style_axes(chart)
         references = []
         if show_mean:
-            references.append(f"{tr('Mean')}: {_number(result.mean)}")
+            references.append(f"{tr('Mean (solid)')}: {_number(result.mean)}")
         if show_median:
-            references.append(f"{tr('Median')}: {_number(result.median)}")
+            references.append(f"{tr('Median (dashed)')}: {_number(result.median)}")
         self.inspection_label.setText(
             "   ".join(references) if references else tr("Hover a bin to inspect it.")
         )
@@ -285,6 +291,8 @@ class AnalysisChartPanel(QWidget):
         chart.legend().hide()
         chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
         chart.setBackgroundRoundness(0)
+        chart.setMargins(QMargins(6, 4, 6, 4))
+        chart.layout().setContentsMargins(2, 2, 2, 2)
         self._apply_theme(chart)
         self.chart_view.setChart(chart)
         self.chart = chart
@@ -319,6 +327,9 @@ class AnalysisChartPanel(QWidget):
             "text": QColor(DarkColor.TEXT_PRIMARY if dark else Color.TEXT_PRIMARY),
             "muted": QColor(DarkColor.TEXT_MUTED if dark else Color.TEXT_MUTED),
             "accent": QColor(DarkColor.ACCENT if dark else Color.ACCENT),
+            "bar": QColor("#4d8dcc" if dark else "#6da3d8"),
+            "mean_reference": QColor("#e0a458" if dark else "#945f18"),
+            "median_reference": QColor("#b5a0ee" if dark else "#654ca3"),
             "reference": QColor("#d39b52" if dark else "#9b5b16"),
             "outlier": QColor("#d18ce0" if dark else "#7c3f91"),
         }
@@ -331,6 +342,9 @@ class AnalysisChartPanel(QWidget):
         result: HistogramResult,
         value: float | None,
         name: str,
+        *,
+        color_key: str,
+        pen_style: Qt.PenStyle,
     ) -> None:
         if value is None or not result.bin_edges:
             return
@@ -340,7 +354,7 @@ class AnalysisChartPanel(QWidget):
         )
         line = QLineSeries()
         line.setName(name)
-        pen = QPen(self._colors()["reference"], 1.5, Qt.PenStyle.DashLine)
+        pen = QPen(self._colors()[color_key], 1.6, pen_style)
         line.setPen(pen)
         line.append(position, y_axis.min())
         line.append(position, y_axis.max())

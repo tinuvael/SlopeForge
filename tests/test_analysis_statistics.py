@@ -74,11 +74,32 @@ def test_histogram_auto_edges_counts_frequencies_and_missing():
     assert sum(result.frequencies_percent) == pytest.approx(100.0)
 
 
+@pytest.mark.parametrize(
+    ("values", "expected_counts"),
+    [
+        ((2.5,), (1,)),
+        ((2.5, 4.5), (1, 1)),
+    ],
+)
+def test_histogram_small_samples_have_finite_nonzero_ranges(values, expected_counts):
+    result = _service().histogram(_population(dai=values), "dai")
+
+    assert result.valid_n == len(values)
+    assert result.counts == expected_counts
+    assert len(result.bin_edges) == len(result.counts) + 1
+    assert all(math.isfinite(edge) for edge in result.bin_edges)
+    assert result.bin_edges[0] < result.bin_edges[-1]
+
+
 def test_ecdf_preserves_duplicates_and_observation_proportions():
     result = _service().ecdf(_population(fci=(3.0, 1.0, 1.0, None)), "fci")
     assert result.valid_n == 3 and result.missing_count == 1
     assert result.observed_values == (1.0, 1.0, 3.0)
     assert result.cumulative_proportions == pytest.approx((1 / 3, 2 / 3, 1.0))
+
+    single = _service().ecdf(_population(fci=(7.0,)), "fci")
+    assert single.observed_values == (7.0,)
+    assert single.cumulative_proportions == (1.0,)
 
 
 def test_tukey_box_uses_linear_quartiles_observed_whiskers_and_outliers():
@@ -98,6 +119,13 @@ def test_tukey_box_uses_linear_quartiles_observed_whiskers_and_outliers():
     assert one.lower_whisker == one.upper_whisker == 7.0
     assert one.outliers == ()
 
+    two = _service().box(_population(dai=(2.0, 8.0)), "dai")
+    assert two.q1 == pytest.approx(3.5)
+    assert two.median == 5.0
+    assert two.q3 == pytest.approx(6.5)
+    assert (two.lower_whisker, two.upper_whisker) == (2.0, 8.0)
+    assert two.outliers == ()
+
 
 def test_grouped_statistics_have_independent_missing_counts_and_stable_order():
     population = _population(
@@ -115,6 +143,29 @@ def test_grouped_statistics_have_independent_missing_counts_and_stable_order():
     assert beta.p90 == pytest.approx(4.6)
     assert beta.sample_std_dev == pytest.approx(math.sqrt(8.0))
     assert (missing_group.group_count, missing_group.valid_n, missing_group.missing_count) == (1, 1, 0)
+
+
+def test_grouped_statistics_keep_single_double_and_all_missing_groups_truthful():
+    result = _service().grouped(
+        _population(
+            fci=(1.0, 2.0, 4.0, None, math.nan),
+            domain=("Single", "Double", "Double", "Empty", "Empty"),
+        ),
+        "fci",
+        "domain",
+    )
+    groups = {group.group_value: group for group in result.groups}
+
+    assert groups["Single"].valid_n == 1
+    assert groups["Single"].sample_std_dev is None
+    assert groups["Single"].box.lower_whisker == 1.0
+    assert groups["Single"].box.upper_whisker == 1.0
+    assert groups["Double"].valid_n == 2
+    assert groups["Double"].sample_std_dev == pytest.approx(math.sqrt(2.0))
+    assert groups["Empty"].group_count == 2
+    assert groups["Empty"].valid_n == 0
+    assert groups["Empty"].missing_count == 2
+    assert groups["Empty"].sample_std_dev is None
 
 
 def test_grouped_comparison_reports_excessive_groups_without_shrinking_plot():

@@ -34,6 +34,7 @@ from ui.analysis.statistics_views import (
     AnalysisCompareView,
     AnalysisDistributionView,
     AnalysisSummaryView,
+    VIEW_TOP_SPACING,
 )
 
 
@@ -143,9 +144,13 @@ class AnalysisPage(QWidget):
         self.summary_view = AnalysisSummaryView(self.statistics)
         self.distribution_view = AnalysisDistributionView(self.statistics)
         self.compare_view = AnalysisCompareView(self.statistics)
-        self.relationships_view = QLabel(tr("Planned for a later Analysis stage."))
-        self.relationships_view.setObjectName("EmptyState")
-        self.relationships_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.relationships_view = QWidget()
+        relationships_layout = QVBoxLayout(self.relationships_view)
+        relationships_layout.setContentsMargins(0, VIEW_TOP_SPACING, 0, 0)
+        self.relationships_message = QLabel(tr("Planned for a later Analysis stage."))
+        self.relationships_message.setObjectName("EmptyState")
+        self.relationships_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        relationships_layout.addWidget(self.relationships_message)
         self.tabs.addTab(self.summary_view, tr("Summary"))
         self.tabs.addTab(self.distribution_view, tr("Distribution"))
         self.tabs.addTab(self.compare_view, tr("Compare"))

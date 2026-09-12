@@ -9,6 +9,8 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -39,6 +41,7 @@ from ui.widgets.design_system import set_button_role
 
 
 MISSING_VALUE = "—"
+VIEW_TOP_SPACING = 8
 
 
 def _format_number(value: float | None, decimals: int = 3) -> str:
@@ -57,6 +60,44 @@ def _table() -> QTableWidget:
     return table
 
 
+def _view_layout(widget: QWidget) -> QVBoxLayout:
+    """Keep view controls visually separate from the containing tab row."""
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(0, VIEW_TOP_SPACING, 0, 0)
+    layout.setSpacing(6)
+    return layout
+
+
+class StatisticsConventionsDialog(QDialog):
+    """Compact, discoverable explanation of the active statistical rules."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("AnalysisConventionsDialog")
+        self.setWindowTitle(tr("Statistical conventions"))
+        self.setModal(True)
+        self.setMinimumWidth(500)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(8)
+        conventions = (
+            "Sample standard deviation and variance use ddof=1.",
+            "Quantiles use NumPy's linear method.",
+            "Missing, invalid, and non-finite values are excluded and counted as Missing.",
+            "Tukey box plots use Q1/Q3 and 1.5×IQR fences. Whiskers end at observed values inside the fences.",
+            "Observations outside the fences are statistical outliers, not automatically engineering defects.",
+        )
+        for convention in conventions:
+            label = QLabel(f"• {tr(convention)}")
+            label.setWordWrap(True)
+            layout.addWidget(label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class AnalysisSummaryView(QWidget):
     """Parameter-oriented descriptive and percentile tables."""
 
@@ -68,9 +109,7 @@ class AnalysisSummaryView(QWidget):
         self._selected_by_dataset: dict[str, set[str]] = {}
         self.last_result = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout = _view_layout(self)
         controls = QHBoxLayout()
         controls.addWidget(QLabel(tr("Parameters:")))
         self.parameters_button = QPushButton()
@@ -87,17 +126,18 @@ class AnalysisSummaryView(QWidget):
         self.mode_combo.currentIndexChanged.connect(self._render)
         controls.addWidget(self.mode_combo)
         controls.addStretch()
-        help_button = QPushButton(tr("Conventions"))
-        help_button.setObjectName("AnalysisConventionsHelp")
-        set_button_role(help_button, "secondary")
-        help_button.setToolTip(
+        self.conventions_button = QPushButton(tr("Conventions"))
+        self.conventions_button.setObjectName("AnalysisConventionsHelp")
+        set_button_role(self.conventions_button, "secondary")
+        self.conventions_button.setToolTip(
             tr(
                 "Sample standard deviation and variance use ddof=1. "
                 "Quantiles use linear interpolation. Invalid, non-finite and "
                 "missing values are excluded and counted as missing."
             )
         )
-        controls.addWidget(help_button)
+        self.conventions_button.clicked.connect(self._show_conventions)
+        controls.addWidget(self.conventions_button)
         layout.addLayout(controls)
         self.message_label = QLabel()
         self.message_label.setObjectName("AnalysisInlineState")
@@ -106,6 +146,11 @@ class AnalysisSummaryView(QWidget):
         layout.addWidget(self.message_label)
         self.table = _table()
         layout.addWidget(self.table, 1)
+
+        self.conventions_dialog = StatisticsConventionsDialog(self)
+
+    def _show_conventions(self) -> None:
+        self.conventions_dialog.open()
 
     @property
     def selected_parameters(self) -> tuple[str, ...]:
@@ -257,8 +302,7 @@ class AnalysisDistributionView(QWidget):
         self.population: AnalysisPopulationProjection | None = None
         self._states: dict[str, _DistributionState] = {}
         self.last_result = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout = _view_layout(self)
         controls = QHBoxLayout()
         controls.addWidget(QLabel(tr("Parameter:")))
         self.parameter_combo = QComboBox()
@@ -394,8 +438,7 @@ class AnalysisCompareView(QWidget):
         self.population: AnalysisPopulationProjection | None = None
         self._state_by_dataset: dict[str, tuple[str | None, str | None]] = {}
         self.last_result: GroupedComparisonResult | None = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout = _view_layout(self)
         controls = QHBoxLayout()
         controls.addWidget(QLabel(tr("Parameter:")))
         self.parameter_combo = QComboBox()
@@ -417,15 +460,20 @@ class AnalysisCompareView(QWidget):
         self.message_label.setWordWrap(True)
         self.message_label.hide()
         layout.addWidget(self.message_label)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("AnalysisCompareSplitter")
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(5)
         self.chart_panel = AnalysisChartPanel()
+        self.chart_panel.setMinimumWidth(480)
         self.table = _table()
-        splitter.addWidget(self.chart_panel)
-        splitter.addWidget(self.table)
-        splitter.setSizes([720, 480])
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        layout.addWidget(splitter, 1)
+        self.table.setMinimumWidth(350)
+        self.splitter.addWidget(self.chart_panel)
+        self.splitter.addWidget(self.table)
+        self.splitter.setSizes([660, 440])
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 2)
+        layout.addWidget(self.splitter, 1)
 
     def set_context(
         self,

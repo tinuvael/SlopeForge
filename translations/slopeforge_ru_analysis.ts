@@ -72,6 +72,12 @@
     <message><source>Descriptive</source><translation>Описательная</translation></message>
     <message><source>Percentiles</source><translation>Процентили</translation></message>
     <message><source>Conventions</source><translation>Методика</translation></message>
+    <message><source>Statistical conventions</source><translation>Статистическая методика</translation></message>
+    <message><source>Sample standard deviation and variance use ddof=1.</source><translation>Выборочные стандартное отклонение и дисперсия используют ddof=1.</translation></message>
+    <message><source>Quantiles use NumPy's linear method.</source><translation>Квантили рассчитываются линейным методом NumPy.</translation></message>
+    <message><source>Missing, invalid, and non-finite values are excluded and counted as Missing.</source><translation>Пропущенные, недопустимые и неконечные значения исключаются и учитываются в категории «Пропущено».</translation></message>
+    <message><source>Tukey box plots use Q1/Q3 and 1.5×IQR fences. Whiskers end at observed values inside the fences.</source><translation>Диаграммы Тьюки используют Q1/Q3 и границы 1,5×IQR. Усы заканчиваются на наблюдаемых значениях внутри границ.</translation></message>
+    <message><source>Observations outside the fences are statistical outliers, not automatically engineering defects.</source><translation>Наблюдения за границами являются статистическими выбросами, но не считаются автоматически инженерными дефектами.</translation></message>
     <message><source>Sample standard deviation and variance use ddof=1. Quantiles use linear interpolation. Invalid, non-finite and missing values are excluded and counted as missing.</source><translation>Выборочные стандартное отклонение и дисперсия используют ddof=1. Квантили используют линейную интерполяцию. Недопустимые, нечисловые и пропущенные значения исключаются и учитываются как пропуски.</translation></message>
     <message><source>No parameters</source><translation>Нет параметров</translation></message>
     <message><source>%1 selected</source><translation>Выбрано: %1</translation></message>
@@ -80,9 +86,11 @@
     <message><source>Unit</source><translation>Единица</translation></message>
     <message><source>Missing</source><translation>Пропущено</translation></message>
     <message><source>Mean</source><translation>Среднее</translation></message>
+    <message><source>Mean (solid)</source><translation>Среднее (сплошная)</translation></message>
     <message><source>Std. dev.</source><translation>Ст. откл.</translation></message>
     <message><source>Variance</source><translation>Дисперсия</translation></message>
     <message><source>Median</source><translation>Медиана</translation></message>
+    <message><source>Median (dashed)</source><translation>Медиана (штриховая)</translation></message>
     <message><source>IQR</source><translation>IQR</translation></message>
     <message><source>Q1 / P25</source><translation>Q1 / P25</translation></message>
     <message><source>Q3 / P75</source><translation>Q3 / P75</translation></message>

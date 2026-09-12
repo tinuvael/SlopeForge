@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
 PySide6 = pytest.importorskip("PySide6")
+from PySide6.QtCharts import (
+    QBarSeries,
+    QBoxPlotSeries,
+    QLineSeries,
+    QScatterSeries,
+    QValueAxis,
+)
 from PySide6.QtCore import QDate, QEvent, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from application.analysis.catalog import assessment_results_dataset
 from application.analysis.models import (
@@ -19,12 +27,25 @@ from application.analysis.models import (
     PopulationLimitExceededError,
 )
 from application.services.analysis import AnalysisDatasetService
+from application.services.analysis_statistics import AnalysisStatisticsService
+from app.localization import TsTranslator
+from ui.analysis.charts import AnalysisChartPanel
+from ui.analysis.statistics_views import AnalysisCompareView, VIEW_TOP_SPACING
 from ui.pages.analysis_page import AnalysisPage
 from tests.test_analysis_foundation import MemoryAnalysisProvider
 
 
 def _app():
     return QApplication.instance() or QApplication([])
+
+
+def _population(**columns):
+    size = len(next(iter(columns.values()))) if columns else 0
+    return AnalysisPopulationProjection(
+        assessment_results_dataset(),
+        size,
+        {key: tuple(values) for key, values in columns.items()},
+    )
 
 
 class LargePopulationProvider:
@@ -255,3 +276,175 @@ def test_distribution_compare_controls_and_chart_theme_contract():
     assert dark_plot.name().lower() != "#ffffff"
     app.setProperty("slopeforgeTheme", previous)
     page.close()
+
+
+def test_statistical_views_are_separated_from_tabs_and_conventions_open():
+    app = _app()
+    page = AnalysisPage(AnalysisDatasetService(MemoryAnalysisProvider()))
+    page.resize(1366, 768)
+    page.show(); app.processEvents()
+
+    for view in (
+        page.summary_view,
+        page.distribution_view,
+        page.compare_view,
+        page.relationships_view,
+    ):
+        assert view.layout().contentsMargins().top() == VIEW_TOP_SPACING
+
+    page.summary_view.conventions_button.click(); app.processEvents()
+    dialog = page.summary_view.conventions_dialog
+    assert dialog.isVisible()
+    text = " ".join(label.text() for label in dialog.findChildren(QLabel))
+    assert "ddof=1" in text
+    assert "NumPy's linear method" in text
+    assert "1.5×IQR" in text
+    assert "statistical outliers" in text
+    dialog.reject()
+    page.close()
+
+
+def test_statistical_conventions_have_russian_translations():
+    app = _app()
+    translator = TsTranslator(app)
+    assert translator.load(Path("translations/slopeforge_ru_analysis.ts"))
+    assert translator.translate("SlopeForge", "Statistical conventions") == (
+        "Статистическая методика"
+    )
+    assert "линейным методом NumPy" in translator.translate(
+        "SlopeForge", "Quantiles use NumPy's linear method."
+    )
+    assert "инженерными дефектами" in translator.translate(
+        "SlopeForge",
+        "Observations outside the fences are statistical outliers, not automatically engineering defects.",
+    )
+
+
+def test_histogram_mean_and_median_have_distinct_theme_aware_pen_styles():
+    app = _app()
+    previous = app.property("slopeforgeTheme")
+    panel = AnalysisChartPanel()
+    result = AnalysisStatisticsService(None).histogram(
+        _population(dai=(0.1, 0.4, 0.55, 0.8)), "dai"
+    )
+
+    for theme in ("light", "dark"):
+        app.setProperty("slopeforgeTheme", theme)
+        panel.show_histogram(
+            result,
+            title="DAI",
+            unit=None,
+            frequency=False,
+            show_mean=True,
+            show_median=True,
+        )
+        references = {
+            series.name(): series
+            for series in panel.chart.series()
+            if isinstance(series, QLineSeries)
+        }
+        assert references["Mean"].pen().style() == Qt.PenStyle.SolidLine
+        assert references["Median"].pen().style() == Qt.PenStyle.DashLine
+        assert references["Mean"].pen().color() != references["Median"].pen().color()
+        assert "Mean (solid)" in panel.inspection_label.text()
+        assert "Median (dashed)" in panel.inspection_label.text()
+        bars = next(
+            series for series in panel.chart.series() if isinstance(series, QBarSeries)
+        )
+        assert bars.barWidth() == pytest.approx(0.76)
+
+    app.setProperty("slopeforgeTheme", previous)
+    panel.close()
+
+
+@pytest.mark.parametrize("values", [(3.0,), (3.0, 7.0)])
+def test_small_sample_histogram_ecdf_and_box_plots_have_valid_axes(values):
+    _app()
+    service = AnalysisStatisticsService(None)
+    population = _population(dai=values)
+    panel = AnalysisChartPanel()
+
+    panel.show_histogram(
+        service.histogram(population, "dai"),
+        title="DAI", unit=None, frequency=False,
+        show_mean=True, show_median=True,
+    )
+    assert all(
+        axis.min() < axis.max()
+        for axis in panel.chart.axes()
+        if isinstance(axis, QValueAxis)
+    )
+
+    panel.show_ecdf(service.ecdf(population, "dai"), title="DAI", unit=None)
+    assert all(
+        axis.min() < axis.max()
+        for axis in panel.chart.axes()
+        if isinstance(axis, QValueAxis)
+    )
+
+    panel.show_box(service.box(population, "dai"), title="DAI", unit=None)
+    assert any(isinstance(series, QBoxPlotSeries) for series in panel.chart.series())
+    assert all(
+        axis.min() < axis.max()
+        for axis in panel.chart.axes()
+        if isinstance(axis, QValueAxis)
+    )
+    panel.close()
+
+
+def test_box_plot_outlier_series_is_present_only_when_statistically_required():
+    _app()
+    service = AnalysisStatisticsService(None)
+    panel = AnalysisChartPanel()
+
+    panel.show_box(
+        service.box(_population(dai=(1.0, 2.0, 3.0, 4.0)), "dai"),
+        title="DAI",
+        unit=None,
+    )
+    assert not any(
+        isinstance(series, QScatterSeries) for series in panel.chart.series()
+    )
+
+    panel.show_box(
+        service.box(_population(dai=(1.0, 2.0, 3.0, 4.0, 100.0)), "dai"),
+        title="DAI",
+        unit=None,
+    )
+    assert any(isinstance(series, QScatterSeries) for series in panel.chart.series())
+    panel.close()
+
+
+def test_compare_small_and_missing_groups_stay_readable_during_resize():
+    app = _app()
+    view = AnalysisCompareView(AnalysisStatisticsService(None))
+    view.set_context(
+        assessment_results_dataset(),
+        _population(
+            fci=(1.0, 2.0, 4.0, None, float("nan")),
+            domain=(
+                "A single observation with a long group label",
+                "Two observations",
+                "Two observations",
+                "All numeric values missing",
+                "All numeric values missing",
+            ),
+        ),
+    )
+
+    for width in (1060, 1614):
+        view.resize(width, 650)
+        view.show(); app.processEvents()
+        assert view.splitter.sizes()[0] >= 480
+        assert view.splitter.sizes()[1] >= 350
+        assert not view.splitter.childrenCollapsible()
+
+    groups = {group.group_value: group for group in view.last_result.groups}
+    assert groups["A single observation with a long group label"].valid_n == 1
+    assert groups["A single observation with a long group label"].sample_std_dev is None
+    assert groups["Two observations"].valid_n == 2
+    assert groups["All numeric values missing"].valid_n == 0
+    assert view.table.rowCount() == 3
+    assert view.table.item(0, 0).toolTip() == view.table.item(0, 0).text()
+    assert "No valid numeric values" not in view.chart_panel.inspection_label.text()
+    view.close()

@@ -38,6 +38,7 @@ class AnalysisField:
     format_hint: str | None = None
     source_role: str | None = None
     common_filter: bool = False
+    groupable: bool = False
 
     @property
     def is_numeric(self) -> bool:
@@ -116,5 +117,36 @@ class FilteredDataset:
     query_metadata: Mapping[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class AnalysisPopulationProjection:
+    """Complete filtered numeric/category columns used by statistical services.
+
+    This projection is deliberately separate from ``FilteredDataset.rows`` so
+    bounded Data-table loading can never become an accidental statistics input.
+    """
+
+    dataset: AnalysisDataset
+    matching_count: int
+    columns: Mapping[str, tuple[object | None, ...]] = field(default_factory=dict)
+
+    def column(self, field_key: str) -> tuple[object | None, ...]:
+        try:
+            return self.columns[field_key]
+        except KeyError as exc:
+            raise KeyError(f"Population projection does not include {field_key}") from exc
+
+
 class DatasetUnavailableError(LookupError):
     """Raised when a staged Analysis dataset is selected before implementation."""
+
+
+class PopulationLimitExceededError(RuntimeError):
+    """Raised before loading a statistical population that is unsafe in memory."""
+
+    def __init__(self, matching_count: int, limit: int):
+        self.matching_count = int(matching_count)
+        self.limit = int(limit)
+        super().__init__(
+            f"Filtered population has {self.matching_count} records; "
+            f"the safe analysis limit is {self.limit}"
+        )

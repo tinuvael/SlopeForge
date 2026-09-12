@@ -9,6 +9,7 @@ import pytest
 from application.analysis.catalog import assessment_results_dataset
 from application.analysis.models import (
     AnalysisFieldType,
+    AnalysisPopulationProjection,
     AnalysisRow,
     DatasetUnavailableError,
     FilterChoice,
@@ -16,6 +17,7 @@ from application.analysis.models import (
     FilterOperator,
     FilterSpec,
     FilteredDataset,
+    PopulationLimitExceededError,
     SourceReference,
     SortSpec,
 )
@@ -121,6 +123,39 @@ class MemoryAnalysisProvider:
         return FilteredDataset(
             assessment_results_dataset(), tuple(rows[:limit]), len(self.rows), len(rows),
             len(rows) > limit,
+        )
+
+    def project_population(self, spec, *, field_keys, max_rows):
+        rows = list(self.rows)
+        identifiers = {
+            "project": "_project_id",
+            "domain": "_domain_id",
+            "assessment_area": "_area_id",
+        }
+        for condition in spec.conditions:
+            if condition.operator is FilterOperator.CATEGORICAL_EQUALS:
+                key = identifiers.get(condition.field_key, condition.field_key)
+                rows = [row for row in rows if row.values.get(key) == condition.value]
+            elif condition.operator in {
+                FilterOperator.NUMERIC_RANGE,
+                FilterOperator.DATE_RANGE,
+            }:
+                lower, upper = condition.value
+                rows = [
+                    row for row in rows
+                    if row.values.get(condition.field_key) is not None
+                    and (lower is None or row.values[condition.field_key] >= lower)
+                    and (upper is None or row.values[condition.field_key] <= upper)
+                ]
+        if len(rows) > max_rows:
+            raise PopulationLimitExceededError(len(rows), max_rows)
+        return AnalysisPopulationProjection(
+            assessment_results_dataset(),
+            len(rows),
+            {
+                key: tuple(row.values.get(key) for row in rows)
+                for key in field_keys
+            },
         )
 
 

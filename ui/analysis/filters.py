@@ -84,6 +84,10 @@ class FilterControl(QWidget):
             )
             header.addWidget(remove_button)
         self._layout.addLayout(header)
+        self.validation_label = QLabel()
+        self.validation_label.setObjectName("AnalysisFilterValidation")
+        self.validation_label.setWordWrap(True)
+        self.validation_label.hide()
 
     def condition(self) -> FilterCondition | None:
         raise NotImplementedError
@@ -93,6 +97,13 @@ class FilterControl(QWidget):
 
     def reset(self) -> None:
         self.set_condition(None)
+
+    def _finish_layout(self) -> None:
+        self._layout.addWidget(self.validation_label)
+
+    def _set_validation(self, message: str = "") -> None:
+        self.validation_label.setText(message)
+        self.validation_label.setVisible(bool(message))
 
 
 class CategoricalFilter(FilterControl):
@@ -126,6 +137,7 @@ class CategoricalFilter(FilterControl):
         self.combo.currentTextChanged.connect(self.combo.setToolTip)
         self.combo.setToolTip(self.combo.currentText())
         self._layout.addWidget(self.combo)
+        self._finish_layout()
 
     def condition(self) -> FilterCondition | None:
         value = self.combo.currentData()
@@ -159,20 +171,16 @@ class NumericRangeFilter(FilterControl):
         self.maximum.setValidator(validator)
         self.minimum.setPlaceholderText(tr("Min"))
         self.maximum.setPlaceholderText(tr("Max"))
-        self.minimum.editingFinished.connect(self.changed)
-        self.maximum.editingFinished.connect(self.changed)
+        self._committed: FilterCondition | None = None
+        self.minimum.editingFinished.connect(self._commit_edit)
+        self.maximum.editingFinished.connect(self._commit_edit)
         row.addWidget(self.minimum, 1)
         row.addWidget(self.maximum, 1)
         self._layout.addLayout(row)
+        self._finish_layout()
 
     def condition(self) -> FilterCondition | None:
-        lower = self._value(self.minimum)
-        upper = self._value(self.maximum)
-        if lower is None and upper is None:
-            return None
-        return FilterCondition(
-            self.field.key, FilterOperator.NUMERIC_RANGE, (lower, upper)
-        )
+        return self._committed
 
     @staticmethod
     def _value(editor: QLineEdit) -> float | None:
@@ -183,6 +191,27 @@ class NumericRangeFilter(FilterControl):
         lower, upper = condition.value if condition is not None else (None, None)
         self.minimum.setText("" if lower is None else f"{float(lower):g}")
         self.maximum.setText("" if upper is None else f"{float(upper):g}")
+        self._committed = condition
+        self._set_validation()
+
+    def _commit_edit(self) -> None:
+        try:
+            lower = self._value(self.minimum)
+            upper = self._value(self.maximum)
+        except ValueError:
+            self._set_validation(tr("Enter a valid number. Edit not applied."))
+            return
+        if lower is not None and upper is not None and lower > upper:
+            self._set_validation(tr("Minimum cannot exceed maximum. Edit not applied."))
+            return
+        condition = None
+        if lower is not None or upper is not None:
+            condition = FilterCondition(
+                self.field.key, FilterOperator.NUMERIC_RANGE, (lower, upper)
+            )
+        self._committed = condition
+        self._set_validation()
+        self.changed.emit()
 
 
 class DateRangeFilter(FilterControl):
@@ -192,6 +221,7 @@ class DateRangeFilter(FilterControl):
         self.to_enabled = QCheckBox(tr("To"))
         self.minimum = self._date_edit()
         self.maximum = self._date_edit()
+        self._committed: FilterCondition | None = None
         for enabled, editor in (
             (self.from_enabled, self.minimum),
             (self.to_enabled, self.maximum),
@@ -203,8 +233,9 @@ class DateRangeFilter(FilterControl):
             row.addWidget(editor, 1)
             self._layout.addLayout(row)
             enabled.toggled.connect(editor.setEnabled)
-            enabled.toggled.connect(self.changed)
+            enabled.toggled.connect(self._commit_edit)
             editor.dateChanged.connect(self._date_changed)
+        self._finish_layout()
 
     @staticmethod
     def _date_edit() -> QDateEdit:
@@ -222,16 +253,10 @@ class DateRangeFilter(FilterControl):
 
     def _date_changed(self) -> None:
         if self.sender().isEnabled():
-            self.changed.emit()
+            self._commit_edit()
 
     def condition(self) -> FilterCondition | None:
-        lower = self.minimum.date().toPython() if self.from_enabled.isChecked() else None
-        upper = self.maximum.date().toPython() if self.to_enabled.isChecked() else None
-        if lower is None and upper is None:
-            return None
-        return FilterCondition(
-            self.field.key, FilterOperator.DATE_RANGE, (lower, upper)
-        )
+        return self._committed
 
     def set_condition(self, condition: FilterCondition | None) -> None:
         lower, upper = condition.value if condition is not None else (None, None)
@@ -241,6 +266,23 @@ class DateRangeFilter(FilterControl):
             self.minimum.setDate(QDate(lower.year, lower.month, lower.day))
         if upper is not None:
             self.maximum.setDate(QDate(upper.year, upper.month, upper.day))
+        self._committed = condition
+        self._set_validation()
+
+    def _commit_edit(self) -> None:
+        lower = self.minimum.date().toPython() if self.from_enabled.isChecked() else None
+        upper = self.maximum.date().toPython() if self.to_enabled.isChecked() else None
+        if lower is not None and upper is not None and lower > upper:
+            self._set_validation(tr("Minimum cannot exceed maximum. Edit not applied."))
+            return
+        condition = None
+        if lower is not None or upper is not None:
+            condition = FilterCondition(
+                self.field.key, FilterOperator.DATE_RANGE, (lower, upper)
+            )
+        self._committed = condition
+        self._set_validation()
+        self.changed.emit()
 
 
 def create_filter_control(
@@ -305,7 +347,7 @@ class AnalysisFilterPanel(QFrame):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         layout.addWidget(self.add_button)
-        self.reset_button = QPushButton(tr("Reset filters"))
+        self.reset_button = QPushButton(tr("Clear all"))
         set_button_role(self.reset_button, "secondary")
         self.reset_button.setMinimumWidth(0)
         self.reset_button.setSizePolicy(
@@ -321,6 +363,15 @@ class AnalysisFilterPanel(QFrame):
     def conditions(self) -> tuple[FilterCondition, ...]:
         return tuple(
             condition
+            for control in self.controls.values()
+            if (condition := control.condition()) is not None
+        )
+
+    def condition_summaries(self) -> tuple[str, ...]:
+        if self.definition is None:
+            return ()
+        return tuple(
+            self._condition_summary(self.definition.field(condition.field_key), condition)
             for control in self.controls.values()
             if (condition := control.condition()) is not None
         )
@@ -454,3 +505,38 @@ class AnalysisFilterPanel(QFrame):
     def _control_changed(self) -> None:
         if not self._updating:
             self.changed.emit()
+
+    def _condition_summary(
+        self, field: AnalysisField, condition: FilterCondition
+    ) -> str:
+        label = tr(field.label)
+        if condition.operator in {
+            FilterOperator.CATEGORICAL_EQUALS,
+            FilterOperator.CATEGORICAL_IN,
+        }:
+            raw_values = (
+                tuple(condition.value)
+                if condition.operator is FilterOperator.CATEGORICAL_IN
+                else (condition.value,)
+            )
+            choices = {choice.value: choice.label for choice in self._options.get(field.key, ())}
+            values = [
+                _choice_label(field, choices.get(value, value)) for value in raw_values
+            ]
+            return f"{label}: {', '.join(values)}"
+        lower, upper = condition.value
+        if condition.operator is FilterOperator.DATE_RANGE:
+            locale = QLocale.system()
+            format_value = lambda value: locale.toString(
+                QDate(value.year, value.month, value.day),
+                QLocale.FormatType.ShortFormat,
+            )
+        else:
+            format_value = lambda value: f"{float(value):g}"
+        if lower is not None and upper is not None:
+            if lower == upper:
+                return f"{label} = {format_value(lower)}"
+            return f"{label}: {format_value(lower)}–{format_value(upper)}"
+        if lower is not None:
+            return f"{label} ≥ {format_value(lower)}"
+        return f"{label} ≤ {format_value(upper)}"

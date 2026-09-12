@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Mapping, Protocol
 
-from application.analysis.models import FilterChoice, FilterSpec, FilteredDataset, SortSpec
+from application.analysis.models import (
+    AnalysisPopulationProjection,
+    FilterChoice,
+    FilterSpec,
+    FilteredDataset,
+    SortSpec,
+)
 
 
 class AnalysisDatasetProvider(Protocol):
@@ -17,3 +23,11 @@ class AnalysisDatasetProvider(Protocol):
         sort_spec: SortSpec | None,
         limit: int,
     ) -> FilteredDataset: ...
+
+    def project_population(
+        self,
+        filter_spec: FilterSpec,
+        *,
+        field_keys: tuple[str, ...],
+        max_rows: int,
+    ) -> AnalysisPopulationProjection: ...

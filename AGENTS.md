@@ -180,49 +180,58 @@ Before review confirm:
 - Windows / Python 3.14 compatibility was considered;
 - unrelated failures were reported rather than opportunistically fixed.
 
-## Local workers and MCP delegation
+## Local GPU subagent delegation
 
-The `local-coder` MCP server is backed by local `gpt-oss:20b` and exists to reduce primary-model context usage.
+`local-coder` is a shell command available in the remote WSL development environment. It is backed by local `gpt-oss:20b` on the workstation GPU and is an advisory/read-only subagent. It is not the primary implementation authority.
 
-### `local_coder`
+Use it proactively when it can reduce primary-model repository exploration or provide a useful second opinion, but never treat its conclusions as authoritative without verification.
 
-Use proactively for broad repository exploration:
+### Health check
 
-- repository-wide search;
-- locating implementations and tests;
-- tracing call/data flows;
-- reading and summarizing multiple files;
-- first-pass bug investigation;
-- understanding unfamiliar subsystems.
+Before relying on the local GPU worker when availability is uncertain, run:
 
-Delegate broad exploration before the primary model reads large parts of the repository.
+`local-coder health --require-gpu`
 
-Afterward:
+If the health check fails, continue with deterministic tools and the primary model rather than blocking the task.
 
-- verify only important files and claims;
-- do not blindly trust local conclusions;
-- keep final reasoning and implementation responsibility with the primary model.
+### Repository research
 
-Do not repeat an identical `local_coder` investigation unless the first result was incomplete or materially new evidence exists.
+For broad repository exploration, unfamiliar subsystems, call/data-flow tracing, locating implementations/tests, or first-pass bug investigation, use:
 
-### `local_test_triage`
+`local-coder --verbose ask "<focused repository task>"`
 
-Use after implementation when pytest should run.
+Do not pre-seed file names unless the task specifically requires them; let the local worker perform the first-pass discovery. Then verify important claims directly in the repository before making decisions or edits.
 
-Prefer it over feeding large pytest logs to the primary model.
+Do not repeat an identical investigation unless the first result was incomplete or materially new evidence exists.
 
-- On success, consume only the compact PASS summary.
-- On failure, use local triage first, then inspect only relevant failing tests, traceback evidence, and source files.
+### Test triage
 
-The primary model decides and implements fixes.
+For targeted pytest execution and compact failure triage, use:
 
-### `local_diff_review`
+`local-coder test-triage <pytest-target>`
 
-Use for a first-pass review of substantial diffs.
+Examples:
 
-Use its findings to identify likely regressions, broken contracts, edge cases, and missing tests. Verify significant findings yourself.
+- `local-coder test-triage tests/test_dxf_geometry_import.py`
+- `local-coder test-triage tests/test_example.py::test_name`
 
-If no substantive issues are found, avoid repeating a repository-wide review unless the change is high-risk or architectural.
+Use the triage result to narrow investigation. The primary Codex still owns diagnosis, code changes, and final verification. Do not use local triage as a substitute for required PR test commands.
+
+### Diff review
+
+For a first-pass second opinion on meaningful staged/unstaged changes, use:
+
+`local-coder review-diff`
+
+Use its findings to identify likely regressions, broken contracts, edge cases, and missing tests. Verify significant findings yourself. Do not automatically implement every local-model suggestion.
+
+### Ownership and safety
+
+- `local-coder` remains advisory/read-only; the primary Codex owns all repository edits.
+- The primary Codex must independently verify important local-worker claims against source, tests, or deterministic tooling.
+- Use deterministic tools directly when they are cheaper or more reliable than model delegation.
+- Keep architecture decisions, complex implementation, migrations, destructive operations, commits, pushes, PR creation, and final verification with the primary Codex.
+- If `local-coder` is unavailable, fall back cleanly; do not change the task scope merely to restore the worker.
 
 ### External documentation
 
@@ -241,7 +250,7 @@ Prefer local Git for status, diff, history, branches, and working-tree tasks.
 Use the cheapest reliable layer:
 
 1. Deterministic tools: Git, grep, pytest, static analysis.
-2. Local `gpt-oss:20b` workers.
+2. Local `gpt-oss:20b` via the `local-coder` shell command.
 3. Primary model.
 
 Keep architecture decisions, complex implementation, destructive operations, and final verification with the primary model.

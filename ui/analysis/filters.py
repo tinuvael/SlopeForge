@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import re
+
 from PySide6.QtCore import QDate, QLocale, Qt, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -39,6 +42,22 @@ def _choice_label(field: AnalysisField, value: object) -> str:
     if field.format_hint == "assessment_result":
         return assessment_result_presentation(str(value)).label
     return str(value)
+
+
+class AnalysisDecimalValidator(QValidator):
+    """Accept standard decimal input with either separator, independent of locale."""
+
+    _COMPLETE = re.compile(r"[+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)")
+    _PARTIAL = re.compile(r"[+-]?(?:[0-9]*[.,]?[0-9]*)")
+
+    def validate(self, text: str, position: int):
+        if self._COMPLETE.fullmatch(text):
+            state = QValidator.State.Acceptable
+        elif self._PARTIAL.fullmatch(text):
+            state = QValidator.State.Intermediate
+        else:
+            state = QValidator.State.Invalid
+        return state, text, position
 
 
 class FilterControl(QWidget):
@@ -165,8 +184,7 @@ class NumericRangeFilter(FilterControl):
             editor.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
-        validator = QDoubleValidator(self)
-        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        validator = AnalysisDecimalValidator(self)
         self.minimum.setValidator(validator)
         self.maximum.setValidator(validator)
         self.minimum.setPlaceholderText(tr("Min"))
@@ -185,7 +203,12 @@ class NumericRangeFilter(FilterControl):
     @staticmethod
     def _value(editor: QLineEdit) -> float | None:
         text = editor.text().strip().replace(",", ".")
-        return float(text) if text else None
+        if not text:
+            return None
+        value = float(text)
+        if not math.isfinite(value):
+            raise ValueError("Analysis numeric filters require a finite value")
+        return value
 
     def set_condition(self, condition: FilterCondition | None) -> None:
         lower, upper = condition.value if condition is not None else (None, None)
@@ -204,6 +227,8 @@ class NumericRangeFilter(FilterControl):
         if lower is not None and upper is not None and lower > upper:
             self._set_validation(tr("Minimum cannot exceed maximum. Edit not applied."))
             return
+        self.minimum.setText("" if lower is None else f"{lower:g}")
+        self.maximum.setText("" if upper is None else f"{upper:g}")
         condition = None
         if lower is not None or upper is not None:
             condition = FilterCondition(

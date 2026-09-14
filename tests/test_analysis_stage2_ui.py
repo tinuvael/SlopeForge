@@ -15,7 +15,9 @@ from PySide6.QtCharts import (
     QScatterSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QDate, QEvent, Qt
+from PySide6.QtCore import QDate, QEvent, QLocale, Qt
+from PySide6.QtGui import QValidator
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
 from application.analysis.catalog import assessment_results_dataset
@@ -184,6 +186,74 @@ def test_invalid_numeric_range_is_local_and_retains_previous_population():
     assert page.current_filter_spec().conditions[0].value == (0.7, None)
     assert page.summary_view.last_result.matching_count == 1
     page.close()
+
+
+def test_numeric_filter_accepts_both_decimal_separators_independent_of_locale():
+    app = _app()
+    previous_locale = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.Russian, QLocale.Country.Russia))
+    page = AnalysisPage(AnalysisDatasetService(MemoryAnalysisProvider()))
+    page.show(); app.processEvents()
+    try:
+        assert page.filter_panel.add_optional_filter("fci")
+        control = page.filter_panel.controls["fci"]
+        validator = control.minimum.validator()
+
+        for text in ("0.5", "0,5", "-1.25", "-1,25", "2"):
+            assert validator.validate(text, len(text))[0] == QValidator.State.Acceptable
+        for text in ("1,2,3", "1.2.3", "1,2.3", "value"):
+            assert validator.validate(text, len(text))[0] == QValidator.State.Invalid
+
+        control.minimum.clear()
+        QTest.keyClicks(control.minimum, "0.5")
+        assert control.minimum.text() == "0.5"
+        control.maximum.clear()
+        control.minimum.editingFinished.emit(); app.processEvents()
+        dot_condition = control.condition()
+        assert dot_condition.value == (0.5, None)
+        assert page.record_count_label.text() == "2 / 3 records"
+
+        control.minimum.clear()
+        QTest.keyClicks(control.minimum, "0,5")
+        assert control.minimum.text() == "0,5"
+        control.minimum.editingFinished.emit(); app.processEvents()
+        assert control.condition() == dot_condition
+        assert control.minimum.text() == "0.5"
+        assert "FCI ≥ 0.5" in page.population_summary_label.text()
+
+        control.minimum.clear()
+        control.maximum.clear()
+        QTest.keyClicks(control.maximum, "0,5")
+        control.maximum.editingFinished.emit(); app.processEvents()
+        assert control.condition().value == (None, 0.5)
+        assert control.maximum.text() == "0.5"
+        assert "FCI ≤ 0.5" in page.population_summary_label.text()
+
+        control.minimum.setText("-1,25")
+        control.maximum.clear()
+        control.minimum.editingFinished.emit(); app.processEvents()
+        previous_condition = control.condition()
+        previous_population = page.record_count_label.text()
+        previous_calls = len(page.service.provider.specs)
+        assert previous_condition.value == (-1.25, None)
+
+        control.minimum.setText("1,2,3")
+        control.minimum.editingFinished.emit(); app.processEvents()
+        assert control.condition() == previous_condition
+        assert page.record_count_label.text() == previous_population
+        assert len(page.service.provider.specs) == previous_calls
+        assert control.validation_label.isVisible()
+
+        control.minimum.setText("0.8")
+        control.maximum.setText("0.2")
+        control.maximum.editingFinished.emit(); app.processEvents()
+        assert control.condition() == previous_condition
+        assert page.record_count_label.text() == previous_population
+        assert len(page.service.provider.specs) == previous_calls
+        assert "Minimum cannot exceed maximum" in control.validation_label.text()
+    finally:
+        page.close()
+        QLocale.setDefault(previous_locale)
 
 
 def test_invalid_date_range_is_local_and_retains_previous_population():
@@ -355,6 +425,132 @@ def test_histogram_mean_and_median_have_distinct_theme_aware_pen_styles():
 
     app.setProperty("slopeforgeTheme", previous)
     panel.close()
+
+
+def test_runtime_theme_change_restyles_existing_histogram_and_ecdf_series():
+    app = _app()
+    previous = app.property("slopeforgeTheme")
+    service = AnalysisStatisticsService(None)
+    population = _population(dai=(0.1, 0.4, 0.55, 0.8))
+    panel = AnalysisChartPanel()
+    try:
+        app.setProperty("slopeforgeTheme", "light")
+        panel.show_histogram(
+            service.histogram(population, "dai"),
+            title="DAI",
+            unit=None,
+            frequency=False,
+            show_mean=True,
+            show_median=True,
+        )
+        bars = next(
+            series for series in panel.chart.series() if isinstance(series, QBarSeries)
+        ).barSets()[0]
+        references = {
+            series.name(): series
+            for series in panel.chart.series()
+            if isinstance(series, QLineSeries)
+        }
+        light_bar = bars.color()
+        light_mean = references["Mean"].pen().color()
+        light_median = references["Median"].pen().color()
+
+        app.setProperty("slopeforgeTheme", "dark")
+        QApplication.sendEvent(panel, QEvent(QEvent.Type.StyleChange))
+        assert bars.color() != light_bar
+        assert references["Mean"].pen().color() != light_mean
+        assert references["Median"].pen().color() != light_median
+        assert references["Mean"].pen().style() == Qt.PenStyle.SolidLine
+        assert references["Median"].pen().style() == Qt.PenStyle.DashLine
+
+        app.setProperty("slopeforgeTheme", "light")
+        panel.show_ecdf(service.ecdf(population, "dai"), title="DAI", unit=None)
+        line = next(
+            series for series in panel.chart.series() if isinstance(series, QLineSeries)
+        )
+        points = next(
+            series for series in panel.chart.series() if isinstance(series, QScatterSeries)
+        )
+        light_line = line.pen().color()
+        light_points = points.color()
+        light_border = points.borderColor()
+
+        app.setProperty("slopeforgeTheme", "dark")
+        QApplication.sendEvent(panel, QEvent(QEvent.Type.StyleChange))
+        assert line.pen().color() != light_line
+        assert points.color() != light_points
+        assert points.borderColor() != light_border
+    finally:
+        app.setProperty("slopeforgeTheme", previous)
+        panel.close()
+
+
+def test_runtime_theme_change_restyles_existing_box_group_and_outliers():
+    app = _app()
+    previous = app.property("slopeforgeTheme")
+    service = AnalysisStatisticsService(None)
+    panel = AnalysisChartPanel()
+    try:
+        app.setProperty("slopeforgeTheme", "light")
+        result = service.box(
+            _population(dai=(1.0, 2.0, 3.0, 4.0, 100.0)), "dai"
+        )
+        panel.show_box(result, title="DAI", unit=None)
+        box = next(
+            series for series in panel.chart.series()
+            if isinstance(series, QBoxPlotSeries)
+        ).boxSets()[0]
+        outliers = next(
+            series for series in panel.chart.series()
+            if isinstance(series, QScatterSeries)
+        )
+        light_fill = box.brush().color()
+        light_outline = box.pen().color()
+        light_outlier = outliers.color()
+        light_outlier_border = outliers.borderColor()
+
+        app.setProperty("slopeforgeTheme", "dark")
+        QApplication.sendEvent(panel, QEvent(QEvent.Type.StyleChange))
+        assert box.brush().color() != light_fill
+        assert box.pen().color() != light_outline
+        assert outliers.color() != light_outlier
+        assert outliers.borderColor() != light_outlier_border
+
+        app.setProperty("slopeforgeTheme", "light")
+        population = _population(
+            dai=(1.0, 2.0, 3.0, 4.0, 100.0, 10.0),
+            domain=("A", "A", "A", "A", "A", "B"),
+        )
+        grouped = service.grouped(population, "dai", "domain")
+        panel.show_grouped_boxes(
+            grouped, title="DAI", unit=None, labels=("A", "B")
+        )
+        boxes = next(
+            series for series in panel.chart.series()
+            if isinstance(series, QBoxPlotSeries)
+        ).boxSets()
+        grouped_outliers = next(
+            series for series in panel.chart.series()
+            if isinstance(series, QScatterSeries)
+        )
+        light_fills = tuple(box.brush().color() for box in boxes)
+        light_pens = tuple(box.pen().color() for box in boxes)
+        light_grouped_outlier = grouped_outliers.color()
+
+        app.setProperty("slopeforgeTheme", "dark")
+        QApplication.sendEvent(panel, QEvent(QEvent.Type.StyleChange))
+        assert all(
+            box.brush().color() != old
+            for box, old in zip(boxes, light_fills, strict=True)
+        )
+        assert all(
+            box.pen().color() != old
+            for box, old in zip(boxes, light_pens, strict=True)
+        )
+        assert grouped_outliers.color() != light_grouped_outlier
+    finally:
+        app.setProperty("slopeforgeTheme", previous)
+        panel.close()
 
 
 @pytest.mark.parametrize("values", [(3.0,), (3.0, 7.0)])

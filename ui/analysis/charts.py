@@ -14,7 +14,7 @@ from PySide6.QtCharts import (
     QScatterSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QEvent, QMargins, QPointF, Qt
+from PySide6.QtCore import QEvent, QMargins, QObject, QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
@@ -38,6 +38,7 @@ class AnalysisChartPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._style_targets: list[QObject] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -78,9 +79,7 @@ class AnalysisChartPanel(QWidget):
         ]
         bar_set = QBarSet(tr("Frequency %") if frequency else tr("Count"))
         bar_set.append([float(value) for value in values])
-        colors = self._colors()
-        bar_set.setColor(colors["bar"])
-        bar_set.setBorderColor(colors["accent"])
+        self._register_style_target(bar_set, "histogram_bar")
         bar_series = QBarSeries()
         bar_series.append(bar_set)
         bar_series.setBarWidth(0.76)
@@ -105,12 +104,12 @@ class AnalysisChartPanel(QWidget):
         if show_mean:
             self._add_reference_line(
                 chart, x_axis, y_axis, result, result.mean, tr("Mean"),
-                color_key="mean_reference", pen_style=Qt.PenStyle.SolidLine,
+                style_role="mean_reference",
             )
         if show_median:
             self._add_reference_line(
                 chart, x_axis, y_axis, result, result.median, tr("Median"),
-                color_key="median_reference", pen_style=Qt.PenStyle.DashLine,
+                style_role="median_reference",
             )
         self._style_axes(chart)
         references = []
@@ -129,7 +128,7 @@ class AnalysisChartPanel(QWidget):
             return
         line = QLineSeries()
         line.setName("ECDF")
-        line.setPen(QPen(self._colors()["accent"], 2.0))
+        self._register_style_target(line, "ecdf_line")
         previous = 0.0
         for value, proportion in zip(
             result.observed_values, result.cumulative_proportions, strict=True
@@ -139,7 +138,7 @@ class AnalysisChartPanel(QWidget):
             previous = proportion
         points = QScatterSeries()
         points.setMarkerSize(7.0)
-        points.setColor(self._colors()["accent"])
+        self._register_style_target(points, "ecdf_points")
         for value, proportion in zip(
             result.observed_values, result.cumulative_proportions, strict=True
         ):
@@ -198,7 +197,7 @@ class AnalysisChartPanel(QWidget):
         if result.outliers:
             scatter = QScatterSeries()
             scatter.setMarkerSize(7.0)
-            scatter.setColor(self._colors()["outlier"])
+            self._register_style_target(scatter, "outliers")
             scatter.append([QPointF(0.0, value) for value in result.outliers])
             chart.addSeries(scatter)
             scatter.attachAxis(categories)
@@ -252,7 +251,7 @@ class AnalysisChartPanel(QWidget):
         )
         outliers = QScatterSeries()
         outliers.setMarkerSize(7.0)
-        outliers.setColor(self._colors()["outlier"])
+        self._register_style_target(outliers, "outliers")
         category_index = 0
         for group in result.groups:
             if not group.valid_n:
@@ -275,6 +274,7 @@ class AnalysisChartPanel(QWidget):
         if chart is not None:
             self._apply_theme(chart)
             self._style_axes(chart)
+            self._style_current_series()
 
     def changeEvent(self, event) -> None:  # noqa: N802
         super().changeEvent(event)
@@ -286,6 +286,7 @@ class AnalysisChartPanel(QWidget):
             self.refresh_theme()
 
     def _set_chart(self, title: str) -> QChart:
+        self._style_targets.clear()
         chart = QChart()
         chart.setTitle(title)
         chart.legend().hide()
@@ -315,6 +316,46 @@ class AnalysisChartPanel(QWidget):
             axis.setLinePen(QPen(colors["border"]))
             axis.setGridLinePen(QPen(colors["grid"]))
 
+    def _register_style_target(self, target: QObject, role: str) -> None:
+        target.setProperty("analysisStyleRole", role)
+        self._style_targets.append(target)
+        self._style_target(target)
+
+    def _style_current_series(self) -> None:
+        for target in self._style_targets:
+            self._style_target(target)
+
+    def _style_target(self, target: QObject) -> None:
+        colors = self._colors()
+        role = target.property("analysisStyleRole")
+        if role == "histogram_bar":
+            target.setColor(colors["bar"])
+            target.setBorderColor(colors["accent"])
+        elif role == "ecdf_line":
+            target.setPen(QPen(colors["accent"], 2.0, Qt.PenStyle.SolidLine))
+        elif role == "mean_reference":
+            target.setPen(
+                QPen(colors["mean_reference"], 1.6, Qt.PenStyle.SolidLine)
+            )
+        elif role == "median_reference":
+            target.setPen(
+                QPen(colors["median_reference"], 1.6, Qt.PenStyle.DashLine)
+            )
+        elif role == "ecdf_points":
+            target.setColor(colors["accent"])
+            target.setBorderColor(colors["surface"])
+        elif role == "outliers":
+            target.setColor(colors["outlier"])
+            target.setBorderColor(colors["surface"])
+        elif role == "box":
+            fill = (
+                colors["reference"]
+                if target.property("analysisSelected")
+                else colors["accent"]
+            )
+            target.setBrush(QBrush(fill))
+            target.setPen(QPen(colors["text"], 1.0))
+
     @staticmethod
     def _colors() -> dict[str, QColor]:
         app = QApplication.instance()
@@ -343,8 +384,7 @@ class AnalysisChartPanel(QWidget):
         value: float | None,
         name: str,
         *,
-        color_key: str,
-        pen_style: Qt.PenStyle,
+        style_role: str,
     ) -> None:
         if value is None or not result.bin_edges:
             return
@@ -354,8 +394,7 @@ class AnalysisChartPanel(QWidget):
         )
         line = QLineSeries()
         line.setName(name)
-        pen = QPen(self._colors()[color_key], 1.6, pen_style)
-        line.setPen(pen)
+        self._register_style_target(line, style_role)
         line.append(position, y_axis.min())
         line.append(position, y_axis.max())
         chart.addSeries(line)
@@ -371,8 +410,8 @@ class AnalysisChartPanel(QWidget):
             float(result.q3),
             float(result.upper_whisker),
         ])
-        box_set.setBrush(QBrush(self._colors()["accent"]))
-        box_set.setPen(QPen(self._colors()["text"], 1.0))
+        box_set.setProperty("analysisSelected", False)
+        self._register_style_target(box_set, "box")
         return box_set
 
     def _box_value_axis(
@@ -447,6 +486,6 @@ class AnalysisChartPanel(QWidget):
         result: TukeyBoxResult,
     ) -> None:
         for box_set in series.boxSets():
-            box_set.setBrush(QBrush(self._colors()["accent"]))
-        selected.setBrush(QBrush(self._colors()["reference"]))
+            box_set.setProperty("analysisSelected", box_set is selected)
+            self._style_target(box_set)
         self._inspect_box(True, label, result)

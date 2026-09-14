@@ -8,12 +8,14 @@ from sqlalchemy import Select, and_, func, select
 
 from application.analysis.catalog import assessment_results_dataset
 from application.analysis.models import (
+    AnalysisPopulationProjection,
     AnalysisRow,
     FilterChoice,
     FilterCondition,
     FilterOperator,
     FilterSpec,
     FilteredDataset,
+    PopulationLimitExceededError,
     SourceReference,
     SortSpec,
 )
@@ -140,6 +142,75 @@ class SqlAlchemyAnalysisDatasetProvider:
                 "sort_ascending": sort_spec.ascending if sort_spec else None,
             },
         )
+
+    def project_population(
+        self,
+        filter_spec: FilterSpec,
+        *,
+        field_keys: tuple[str, ...],
+        max_rows: int,
+    ) -> AnalysisPopulationProjection:
+        """Return complete filtered scalar columns for statistical analysis."""
+        self._require_assessment_results(filter_spec.dataset_id)
+        conditions = tuple(self._condition(item) for item in filter_spec.conditions)
+        count_statement = self._assessment_query(select(func.count())).where(*conditions)
+        columns = self._projection_columns()
+        try:
+            selected = [columns[key].label(key) for key in field_keys]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported Analysis projection field: {exc.args[0]}") from exc
+
+        with self.session_factory() as session:
+            matching_count = int(session.scalar(count_statement) or 0)
+            if matching_count > max_rows:
+                raise PopulationLimitExceededError(matching_count, max_rows)
+            if not selected:
+                raw_rows = ()
+            else:
+                statement = (
+                    self._assessment_query(select(*selected))
+                    .where(*conditions)
+                    .limit(max_rows + 1)
+                )
+                raw_rows = session.execute(statement).mappings().all()
+                if len(raw_rows) > max_rows:
+                    raise PopulationLimitExceededError(
+                        max(matching_count, len(raw_rows)), max_rows
+                    )
+
+        projected = {
+            key: tuple(self._projection_value(key, row[key]) for row in raw_rows)
+            for key in field_keys
+        }
+        return AnalysisPopulationProjection(
+            dataset=assessment_results_dataset(),
+            matching_count=matching_count,
+            columns=projected,
+        )
+
+    @staticmethod
+    def _projection_columns() -> dict[str, object]:
+        revision = assessment.AssessmentAreaEvaluationRevision
+        geometry = assessment.AssessmentAreaGeometryRevision
+        return {
+            "project": Site.name,
+            "domain": Domain.name,
+            "assessment_area": assessment.AssessmentArea.name,
+            "min_elevation_m": geometry.min_elevation_m,
+            "max_elevation_m": geometry.max_elevation_m,
+            "dai": revision.design_achievement_index,
+            "fci": revision.face_condition_index,
+            "result_quadrant": revision.result_quadrant,
+            "inspector": revision.inspector,
+        }
+
+    @staticmethod
+    def _projection_value(field_key: str, value: object | None) -> object | None:
+        if value is not None and field_key in {
+            "min_elevation_m", "max_elevation_m", "dai", "fci"
+        }:
+            return float(value)
+        return value
 
     @staticmethod
     def _order_by(sort_spec: SortSpec | None) -> tuple:

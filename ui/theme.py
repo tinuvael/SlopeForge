@@ -175,13 +175,21 @@ QTableWidget#StandardTable::item:hover { background: #f3f7fc; }
 QTableWidget#StandardTable::item:selected { background: #eaf3ff; color: #111827; }
 QLabel#EmptyState { color: #6b7280; background: #f8fafc; border: 1px dashed #c5ccd5; border-radius: 7px; padding: 24px; }
 
-QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel {
+QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel, QFrame#AnalysisPopulationSummary {
     background: #ffffff; border: 1px solid #d7dde6; border-radius: 7px;
 }
 QLabel#AnalysisTitle { color: #111827; font-size: 18px; font-weight: 700; }
 QLabel#AnalysisSectionTitle { color: #374151; font-weight: 700; }
 QLabel#AnalysisRecordCount { color: #1261a0; font-weight: 700; padding-left: 10px; }
-QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics { color: #6b7280; }
+QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics,
+QLabel#AnalysisPopulationConditions, QLabel#AnalysisDisplayedCount,
+QLabel#AnalysisPlotInspection, QLabel#AnalysisValidCount { color: #6b7280; }
+QLabel#AnalysisDisplayedCount[truncated="true"] { color: #8a5a00; font-weight: 600; }
+QLabel#AnalysisFilterValidation { color: #a33a32; font-size: 11px; }
+QLabel#AnalysisInlineState {
+    color: #8a5a00; background: #fff7e6; border: 1px solid #e8c77d;
+    border-radius: 5px; padding: 6px;
+}
 QScrollArea#AnalysisFilterScroll { background: transparent; border: 0; }
 QScrollArea#AnalysisFilterScroll > QWidget > QWidget { background: transparent; }
 QToolButton#AnalysisRemoveFilterButton {
@@ -204,6 +212,26 @@ QTableView#AnalysisDataTable QHeaderView::section {
     border-right: 1px solid #e1e6ed; border-bottom: 1px solid #cfd6df;
     padding: 7px 9px; font-weight: 600;
 }
+QTableWidget#AnalysisStatisticsTable {
+    background: #ffffff; alternate-background-color: #f8fafc;
+    border: 1px solid #d7dde6; border-radius: 7px; outline: 0;
+    gridline-color: #edf0f4; selection-background-color: #eaf3ff;
+    selection-color: #111827;
+}
+QTableWidget#AnalysisStatisticsTable QHeaderView::section {
+    background: #f1f4f8; color: #374151; border: 0;
+    border-right: 1px solid #e1e6ed; border-bottom: 1px solid #cfd6df;
+    padding: 6px 8px; font-weight: 600;
+}
+QTableWidget#AnalysisStatisticsTable::item { padding: 4px 7px; }
+QGraphicsView#AnalysisChartView {
+    background: #f8fafc; border: 1px solid #d7dde6; border-radius: 7px;
+}
+QToolButton#AnalysisSidebarToggle {
+    min-height: 26px; padding: 2px 9px; color: #1f2937;
+    background: #ffffff; border: 1px solid #c5ccd5; border-radius: 5px;
+}
+QToolButton#AnalysisSidebarToggle:hover { color: #1261a0; border-color: #1261a0; }
 
 QWidget#EngineeringWorkspace, QWidget#geomechanicsWorkspace { background: #f4f6f9; }
 QWidget#EngineeringWorkspace QGroupBox#drillingGroupCard,

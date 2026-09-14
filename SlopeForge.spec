@@ -18,6 +18,9 @@ datas = [
 # imports that PyInstaller cannot discover from main.py's static import graph.
 hiddenimports = [
     "logging.config",
+    # Analysis distribution and comparison views use the PySide6 Addons
+    # QtCharts module. Keep the Windows package contract explicit.
+    "PySide6.QtCharts",
 ]
 if sys.platform == "win32":
     hiddenimports.extend([

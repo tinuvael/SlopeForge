@@ -254,13 +254,21 @@ QTableWidget#StandardTable::item {{ border-bottom-color: #303946; }}
 QTableWidget#StandardTable::item:hover {{ background: {DarkColor.SURFACE_ELEVATED}; }}
 QTableWidget#StandardTable::item:selected {{ background: {DarkColor.SELECTED}; color: {DarkColor.TEXT_PRIMARY}; }}
 QLabel#EmptyState {{ color: {DarkColor.TEXT_MUTED}; background: {DarkColor.SURFACE_SUBTLE}; border-color: {DarkColor.SEPARATOR}; }}
-QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel {{
+QFrame#AnalysisToolbar, QFrame#AnalysisFiltersPanel, QFrame#AnalysisPopulationSummary {{
     background: {DarkColor.SURFACE}; border-color: {DarkColor.BORDER};
 }}
 QLabel#AnalysisTitle {{ color: {DarkColor.TEXT_PRIMARY}; }}
 QLabel#AnalysisSectionTitle {{ color: {DarkColor.TEXT_SECONDARY}; }}
 QLabel#AnalysisRecordCount {{ color: {DarkColor.ACCENT_HOVER}; }}
-QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics {{ color: {DarkColor.TEXT_MUTED}; }}
+QLabel#AnalysisFilterCount, QLabel#AnalysisRowSemantics,
+QLabel#AnalysisPopulationConditions, QLabel#AnalysisDisplayedCount,
+QLabel#AnalysisPlotInspection, QLabel#AnalysisValidCount {{ color: {DarkColor.TEXT_MUTED}; }}
+QLabel#AnalysisDisplayedCount[truncated="true"] {{ color: {DarkColor.WARNING}; font-weight: 600; }}
+QLabel#AnalysisFilterValidation {{ color: {DarkColor.ERROR}; font-size: 11px; }}
+QLabel#AnalysisInlineState {{
+    color: {DarkColor.WARNING}; background: {DarkColor.SURFACE_SUBTLE};
+    border: 1px solid {DarkColor.SEPARATOR}; border-radius: 5px; padding: 6px;
+}}
 QScrollArea#AnalysisFilterScroll, QScrollArea#AnalysisFilterScroll > QWidget > QWidget {{ background: transparent; border: 0; }}
 QToolButton#AnalysisRemoveFilterButton {{
     color: {DarkColor.TEXT_MUTED}; background: transparent; border: 0;
@@ -293,6 +301,27 @@ QTableView#AnalysisDataTable {{
 QTableView#AnalysisDataTable QHeaderView::section {{
     background: {DarkColor.SURFACE_ELEVATED}; color: {DarkColor.TEXT_SECONDARY};
     border-right-color: {DarkColor.BORDER}; border-bottom-color: {DarkColor.BORDER};
+}}
+QTableWidget#AnalysisStatisticsTable {{
+    background: {DarkColor.SURFACE}; alternate-background-color: {DarkColor.SURFACE_SUBTLE};
+    border-color: {DarkColor.BORDER}; gridline-color: #303946;
+    selection-background-color: {DarkColor.SELECTED}; selection-color: {DarkColor.TEXT_PRIMARY};
+}}
+QTableWidget#AnalysisStatisticsTable QHeaderView::section {{
+    background: {DarkColor.SURFACE_ELEVATED}; color: {DarkColor.TEXT_SECONDARY};
+    border-right-color: {DarkColor.BORDER}; border-bottom-color: {DarkColor.BORDER};
+}}
+QGraphicsView#AnalysisChartView {{
+    background: {DarkColor.SURFACE_SUBTLE}; border: 1px solid {DarkColor.BORDER};
+    border-radius: 7px;
+}}
+QToolButton#AnalysisSidebarToggle {{
+    color: {DarkColor.TEXT_PRIMARY}; background: {DarkColor.SURFACE};
+    border: 1px solid {DarkColor.SEPARATOR}; border-radius: 5px;
+}}
+QToolButton#AnalysisSidebarToggle:hover {{
+    color: {DarkColor.ACCENT_HOVER}; border-color: {DarkColor.ACCENT};
+    background: {DarkColor.SURFACE_SUBTLE};
 }}
 
 QGraphicsView#DashboardPlanView, QGraphicsView#BoreholeView {{

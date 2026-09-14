@@ -9,6 +9,8 @@ from numbers import Real
 from application.analysis.catalog import ANALYSIS_DATASETS, dataset_by_id
 from application.analysis.models import (
     AnalysisDataset,
+    AnalysisFieldType,
+    AnalysisPopulationProjection,
     DatasetUnavailableError,
     FilterChoice,
     FilterCondition,
@@ -22,9 +24,18 @@ from application.ports.analysis import AnalysisDatasetProvider
 
 class AnalysisDatasetService:
     DEFAULT_ROW_LIMIT = 5000
+    DEFAULT_POPULATION_LIMIT = 250_000
 
-    def __init__(self, provider: AnalysisDatasetProvider):
+    def __init__(
+        self,
+        provider: AnalysisDatasetProvider,
+        *,
+        population_limit: int = DEFAULT_POPULATION_LIMIT,
+    ):
         self.provider = provider
+        self.population_limit = int(population_limit)
+        if self.population_limit <= 0:
+            raise ValueError("Analysis population limit must be positive")
 
     def datasets(self) -> tuple[AnalysisDataset, ...]:
         return ANALYSIS_DATASETS
@@ -59,6 +70,39 @@ class AnalysisDatasetService:
         if row_limit <= 0:
             raise ValueError("Analysis row limit must be positive")
         return self.provider.load(filter_spec, sort_spec=sort_spec, limit=row_limit)
+
+    def project_population(
+        self,
+        filter_spec: FilterSpec,
+        field_keys: tuple[str, ...],
+        *,
+        max_rows: int | None = None,
+    ) -> AnalysisPopulationProjection:
+        """Load complete filtered columns for statistics, never table rows."""
+        dataset = self.dataset(filter_spec.dataset_id)
+        if not dataset.available:
+            raise DatasetUnavailableError(dataset.unavailable_reason or dataset.label)
+        for condition in filter_spec.conditions:
+            self._validate_condition(dataset, condition)
+        unique_keys = tuple(dict.fromkeys(field_keys))
+        for field_key in unique_keys:
+            try:
+                field = dataset.field(field_key)
+            except KeyError as exc:
+                raise ValueError(f"Unknown Analysis projection field: {field_key}") from exc
+            if field.field_type not in {
+                AnalysisFieldType.NUMERIC,
+                AnalysisFieldType.CATEGORICAL,
+            }:
+                raise ValueError(
+                    f"Analysis projection field must be numeric or categorical: {field_key}"
+                )
+        safe_limit = self.population_limit if max_rows is None else int(max_rows)
+        if safe_limit <= 0:
+            raise ValueError("Analysis population limit must be positive")
+        return self.provider.project_population(
+            filter_spec, field_keys=unique_keys, max_rows=safe_limit
+        )
 
     @staticmethod
     def _validate_sort(dataset: AnalysisDataset, sort_spec: SortSpec) -> None:

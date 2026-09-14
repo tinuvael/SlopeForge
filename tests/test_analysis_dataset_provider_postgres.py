@@ -21,6 +21,7 @@ from application.analysis.models import (
     FilterCondition,
     FilterOperator,
     FilterSpec,
+    PopulationLimitExceededError,
     SortSpec,
 )
 from database import assessment_models as orm
@@ -161,6 +162,21 @@ def test_assessment_provider_uses_one_current_stored_completed_result_and_filter
     assert "status" not in options
     assert {item.label for item in options["project"]} == {"Alpha", "Beta"}
     assert any(item.value == north_id for item in options["domain"])
+
+    projection = provider.project_population(
+        FilterSpec("assessment_results"),
+        field_keys=("dai", "fci", "domain", "inspector"),
+        max_rows=100,
+    )
+    assert projection.matching_count == 2
+    assert sorted(projection.columns["dai"]) == pytest.approx((0.30, 0.82))
+    assert sorted(projection.columns["fci"]) == pytest.approx((0.61, 0.90))
+    assert set(projection.columns["domain"]) == {"North", "East"}
+    with pytest.raises(PopulationLimitExceededError) as exc_info:
+        provider.project_population(
+            FilterSpec("assessment_results"), field_keys=("dai",), max_rows=1
+        )
+    assert exc_info.value.matching_count == 2
 
 
 def test_assessment_provider_sorts_full_filtered_population_before_limit(factory):
